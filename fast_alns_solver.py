@@ -338,7 +338,6 @@ class IncrementalALNS:
             recovery_list = filtered_recovery[:k]
             return {launch_vehicle_id: launch_list, recovery_vehicle_id: recovery_list}
 
-
     def drone_insert_cost(self, drone_id, customer, launch_node, recovery_node):
         insert_cost = 0
         launch_node_map_index = self.node[launch_node].map_key

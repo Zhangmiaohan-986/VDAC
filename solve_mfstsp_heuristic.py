@@ -124,7 +124,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			N.append(nodeID)		# N is the vector of customer nodes.  N = [1, 2, ..., c]
 	N_zero = [DEPOT_nodeID] + N.copy()  # DEPOT_nodeID在开头
 	N_plus = N.copy() + [DEPOT_nodeID]  # DEPOT_nodeID在末尾
-	N_total = [DEPOT_nodeID] + N.copy() + [DEPOT_nodeID]  # 头尾都添加
+	N_total = [DEPOT_nodeID] + N.copy() + [DEPOT_nodeID]  # 头尾都添加,后期试验最好前后返回的坐标一样，但是编号不一样
 	
 	A_vtp = []
 	A_cust = []
@@ -149,7 +149,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	# for sr in initializedSpeeds:
 	# 	xP[sr] = []
 	xP = {}	
-	for v in V:		# vehicle
+	for v in V:		# 每个无人机可服务的范围
 		xP[v] = []
 		for i in A_vtp:
 			for j in A_cust:

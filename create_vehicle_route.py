@@ -275,24 +275,7 @@ class DiverseRouteGenerator:
                     if veh.vehicleType == TYPE_TRUCK:
                         drone_list = list(veh.drones.keys())
                         vehicle_task_data[vehicle_id][node_id].update_drone_list(drone_list)
-                        # for drone_id in drone_list:
-                        #     for node_id in self.node:
-                        #         vehicle_task_data[drone_id][node_id].dict_vehicle[vehicle_id].drone_belong = vehicle_id
-            
-            # 第二遍：更新无人机的归属车辆信息
-            # 这一步依赖于第一遍中卡车信息的完整性
-            # for vehicle_id, veh in self.vehicle.items():
-            #     if veh.vehicleType == TYPE_UAV:
-            #         # 假设 find_belong_vehicle_id 是一个全局可用的函数
-            #         # 它需要一个已经部分填充的 vehicle_task_data 来工作
-            #         drone_list = list(veh.drones.keys())
-            #         belong_vehicle_id = find_belong_vehicle_id(vehicle_task_data, veh, self.depot_id)
-            #         if belong_vehicle_id is not None:
-            #             # 更新无人机在所有节点的归属状态
-            #             for node_id in self.node:
-            #                 vehicle_task_data[vehicle_id][node_id].update_drone_belong(
-            #                     veh.id, belong_vehicle_id
-            #                 )
+
             for vehicle_id, veh in self.vehicle.items():
                 if veh.vehicleType == TYPE_TRUCK:
                     drone_list = list(veh.drones.keys())
