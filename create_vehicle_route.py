@@ -181,7 +181,7 @@ class DiverseRouteGenerator:
         self.A_c = A_c
         self.vtp_index = {}
         self.xeee = xeee
-        self.save_path = r'E:\南开NKU小论文集合\TITS-基于空中走廊的车辆-无人机协同配送模型与算法研究\coding\tits_VDCD-AC\main_master\tsp_test.png'
+        self.save_path = r'saved_solutions'
         
         # 提取坐标
         self.depot_pos = np.array([node[depot_id].latDeg, node[depot_id].lonDeg, node[depot_id].altMeters])

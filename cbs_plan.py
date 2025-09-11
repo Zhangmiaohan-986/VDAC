@@ -19,7 +19,7 @@ def low_update_time(uav_task_dict, best_uav_plan, best_vehicle_route, vehicle_ta
     """
     对粗略的初始方案规划正确的无人机及车辆的时间，并进行简单的任务分配情况描述
     """
-    # 
+
     detailed_vehicle_task_data = deep_copy_vehicle_task_data(vehicle_task_data)
     trucks_id = T
     uav_id = V
@@ -283,7 +283,7 @@ def rolling_time_cbs(
             best_uav_plan[mission_tuple]['uav_route_cost'] = uav_route_cost
             best_uav_plan[mission_tuple]['uav_time_cost'] = uav_time_cost
             best_uav_cost[customer] = uav_route_cost
-        # 根据到达的时间排序，更新后续的detailed_vehicle_task_data
+        # 根据到达的时间排序，更新后续的detailed_vehicle_task_data,此时间更新后，需对应更新车辆的离开出发时间
         if update_recovery_task:
             sorted_recovery_task = sorted(update_recovery_task.items(), key=lambda item: item[1])
             for mission_tuple, recovery_time in sorted_recovery_task:

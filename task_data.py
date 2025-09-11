@@ -571,7 +571,7 @@ def update_vehicle_task(vehicle_task_data, y, vehicle_route):
     # 更新车辆在各个节点的状态
     return vehicle_task_data
 
-def remove_duplicates(lst):
+def remove_duplicates(lst):  # 去除重复的数字后同时维持原列表顺序
     result = []
     seen = set()
     for num in lst:
@@ -655,7 +655,7 @@ def update_delta_time(delta_time, detailed_vehicle_task_data, vehicle_route, y_i
         launch_node_index = v_id_task_route.index(vtp_i)
         recovery_node_index = recv_v_id_task_route.index(vtp_j)
         launch_remain_route = v_id_task_route[launch_node_index + 1:]
-        recovery_remain_route = recv_v_id_task_route[recovery_node_index:]
+        recovery_remain_route = recv_v_id_task_route[recovery_node_index:] # 从回收当前节点开始，进而更新后续剩余路线
         detailed_vehicle_task_data = update_delta_route(
             delta_time, 
             detailed_vehicle_task_data, 
@@ -709,7 +709,8 @@ def update_delta_route(
         copy_drones_to_carry = (drones_to_carry or []) + (drones_to_launch or [])
         # drones_to_carry.extend(drones_to_launch)
         # 2. 判断：如果本节点没有回收任务，逻辑非常简单
-        if drones_to_recover is not None:
+        # if drones_to_recover is not None:
+        if drones_to_recover:
             for drone_to_carry_id in copy_drones_to_carry:
                 drone_task_obj = detailed_vehicle_task_data[drone_to_carry_id][node_id]
                 drone_task_obj.prcise_arrive_time = task_obj.prcise_arrive_time
