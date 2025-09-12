@@ -690,105 +690,117 @@ def update_delta_route(
 
     for node_id in remain_route:
         task_obj = detailed_vehicle_task_data[v_id][node_id]
+        task_obj_prcise_arrive_time = task_obj.prcise_arrive_time
+        task_obj_prcise_departure_time = task_obj.prcise_departure_time
 
         # 1. 更新本节点的精确到达时间
         # 到达时间 = 原来的到达时间 + 累积的延迟
-        task_obj.prcise_arrive_time += accumulated_delay
-        
+        task_obj.prcise_arrive_time = task_obj_prcise_arrive_time + accumulated_delay
+        task_obj_prcise_arrive_time += accumulated_delay
+        if task_obj_prcise_departure_time < task_obj_prcise_arrive_time:
+            task_obj.prcise_departure_time = task_obj_prcise_arrive_time
+            task_obj_prcise_departure_time = task_obj_prcise_arrive_time
+
         # 为了数据一致性，同步更新arrive_times和departure_times的初始值
         # 注意：这里的departure_times只是一个临时值，如果后面有任务，它会被覆盖
         task_obj.arrive_times.append(task_obj.prcise_arrive_time)
-        task_obj.departure_times.append(task_obj.prcise_arrive_time)
+        task_obj.departure_times.append(task_obj.prcise_departure_time)
 
         # 获取在该节点需要回收的无人机列表
         drones_to_recover = task_obj.recovery_drone_list
         drones_to_launch = task_obj.launch_drone_list
         drones_to_carry = task_obj.drone_list
-        # copy_drones_to_carry = copy.deepcopy(drones_to_carry)
-        # copy_drones_to_carry.extend(drones_to_launch)
         copy_drones_to_carry = (drones_to_carry or []) + (drones_to_launch or [])
-        # drones_to_carry.extend(drones_to_launch)
         # 2. 判断：如果本节点没有回收任务，逻辑非常简单
-        # if drones_to_recover is not None:
-        if drones_to_recover:
-            for drone_to_carry_id in copy_drones_to_carry:
-                drone_task_obj = detailed_vehicle_task_data[drone_to_carry_id][node_id]
-                drone_task_obj.prcise_arrive_time = task_obj.prcise_arrive_time
-                drone_task_obj.dict_vehicle[v_id]['prcise_arrive_time'] = task_obj.prcise_arrive_time
-            # 这个节点的延迟 (accumulated_delay) 将原封不动地传递给下一个节点
-            # continue # 处理下一个节点
-        if not drones_to_recover and drones_to_recover is not None:
-            # 离开时间就等于到达时间，因为没有任务要做
-            task_obj.prcise_departure_time = task_obj.prcise_arrive_time
-            # 这个节点的延迟 (accumulated_delay) 将原封不动地传递给下一个节点
-            continue # 处理下一个节点
-
-        # ================================================================
-        # 3. 核心逻辑：处理有多个回收任务的复杂情况
-        # ================================================================
-        
-        # 3.1 收集所有回收事件，并计算每个无人机的到达时间
-        pending_recoveries = []
-        for drone_to_recover_id in drones_to_recover:
-            # 为了找到该无人机的任务信息，我们需要反向查找
-            # (这是一个可以优化的点，可以提前构建一个 drone_id -> mission 的映射)
-            drone_task_obj = detailed_vehicle_task_data[drone_to_recover_id][node_id]
-            # drone_arrival_time = drone_task_obj.prcise_arrive_time  # 无人机到达节点的精确时间
-            drone_arrival_time = detailed_vehicle_task_data[drone_to_recover_id][node_id].dict_vehicle[v_id]['prcise_arrive_time']
+        if not drones_to_recover:  # 如果没有回收无人机的任务，则直接更新
+            if not copy_drones_to_carry:  # 没有回收任务，没有发射任务，更新车辆离开时间的延迟后直接下一个点
+                task_obj.prcise_departure_time = task_obj.prcise_arrive_time
+                continue
+            else:
+                for drone_to_carry_id in copy_drones_to_carry:
+                    drone_task_obj = detailed_vehicle_task_data[drone_to_carry_id][node_id]
+                    drone_task_obj.prcise_arrive_time = task_obj.prcise_arrive_time
+                    drone_task_obj.dict_vehicle[v_id]['prcise_arrive_time'] = task_obj.prcise_arrive_time
+                    if drone_task_obj.prcise_departure_time < drone_task_obj.prcise_arrive_time:
+                        drone_task_obj.prcise_departure_time = drone_task_obj.prcise_arrive_time
+                        drone_task_obj.dict_vehicle[v_id]['prcise_departure_time'] = task_obj_prcise_departure_time
+                continue
+        else:  # 后续节点存在有无人机到达的情况
+            # ================================================================
+            # 3. 核心逻辑：处理有多个回收任务的复杂情况
+            # ================================================================
             
-            pending_recoveries.append({
-                "drone_id": drone_to_recover_id,
-                "arrival_time": drone_arrival_time
-            })
+            # 3.1 收集所有回收事件，并计算每个无人机的到达时间
+            pending_recoveries = []
+            for drone_to_recover_id in drones_to_recover:
+                # 为了找到该无人机的任务信息，我们需要反向查找
+                # (这是一个可以优化的点，可以提前构建一个 drone_id -> mission 的映射)
+                drone_task_obj = detailed_vehicle_task_data[drone_to_recover_id][node_id]
+                # drone_arrival_time = drone_task_obj.prcise_arrive_time  # 无人机到达节点的精确时间
+                drone_arrival_time = detailed_vehicle_task_data[drone_to_recover_id][node_id].dict_vehicle[v_id]['prcise_arrive_time']
+                
+                pending_recoveries.append({
+                    "drone_id": drone_to_recover_id,
+                    "arrival_time": drone_arrival_time
+                })
 
-        # 3.2 按无人机到达时间排序，实现“先到先回收”
-        pending_recoveries.sort(key=lambda x: x['arrival_time'])
+            # 3.2 按无人机到达时间排序，实现“先到先回收”
+            pending_recoveries.sort(key=lambda x: x['arrival_time'])
 
-        # 3.3 模拟车辆在该节点的服务时间线
-        # 车辆的服务时间从它精确到达该节点时开始
-        node_service_timeline = task_obj.prcise_arrive_time
+            # 3.3 模拟车辆在该节点的服务时间线
+            # 车辆的服务时间从它精确到达该节点时开始
+            node_service_timeline = task_obj.prcise_arrive_time
 
-        for recovery_event in pending_recoveries:
-            drone_id = recovery_event['drone_id']
-            drone_arrival = recovery_event['arrival_time']
-            
-            # 车辆开始回收的时间点，必须同时满足两个条件：
-            # 1. 车辆已经完成上一个任务（由 node_service_timeline 表示）
-            # 2. 无人机已经飞抵当前节点（由 drone_arrival 表示）
-            # 因此，取两者中的最大值
-            recovery_start_time = max(node_service_timeline, drone_arrival)
-            
-            # 获取回收操作需要的时间
-            recovery_duration = vehicle[drone_id].recoveryTime
-            
-            # 计算回收操作的结束时间
-            recovery_end_time = recovery_start_time + recovery_duration
-            
-            # 更新服务时间线，为下一个回收任务做准备
-            # 现在，车辆直到 recovery_end_time 才有空
-            node_service_timeline = recovery_end_time
-            # 判断是否添加了该任务，若添加了，则删除后更新，未添加，则添加
-            uav_task_found = drone_task_obj.find_task(node_id, 14)
-            if uav_task_found:
-                drone_task_obj.delete_task(node_id, 14)
-            drone_task_obj.add_task(node_id, 14, drone_arrival, recovery_end_time)
-            # 记录回收后-离开时间列表
-            drone_task_obj.departure_times.append(recovery_end_time)
-            drone_task_obj.dict_vehicle[v_id]['departure_times'].append(recovery_end_time)
+            for recovery_event in pending_recoveries:
+                drone_id = recovery_event['drone_id']
+                drone_arrival = recovery_event['arrival_time']
+                
+                # 车辆开始回收的时间点，必须同时满足两个条件：
+                # 1. 车辆已经完成上一个任务（由 node_service_timeline 表示）
+                # 2. 无人机已经飞抵当前节点（由 drone_arrival 表示）
+                # 因此，取两者中的最大值
+                recovery_start_time = max(node_service_timeline, drone_arrival)
+                
+                # 获取回收操作需要的时间
+                recovery_duration = vehicle[drone_id].recoveryTime
+                
+                # 计算回收操作的结束时间
+                recovery_end_time = recovery_start_time + recovery_duration
+                
+                # 更新服务时间线，为下一个回收任务做准备
+                # 现在，车辆直到 recovery_end_time 才有空
+                node_service_timeline = recovery_end_time
+                # 判断是否添加了该任务，若添加了，则删除后更新，未添加，则添加
+                uav_task_found = drone_task_obj.find_task(node_id, 14)
+                if uav_task_found:
+                    drone_task_obj.delete_task(node_id, 14)
+                drone_task_obj.add_task(node_id, 14, drone_arrival, recovery_end_time)
+                # 记录回收后-离开时间列表
+                drone_task_obj.departure_times.append(recovery_end_time)
+                drone_task_obj.dict_vehicle[v_id]['departure_times'].append(recovery_end_time)
 
-        # 3.4 更新车辆在该节点的最终离开时间
-        # 当所有回收任务都完成后，服务时间线上的最终时间就是车辆的精确离开时间
-        task_obj.prcise_departure_time = node_service_timeline
-        for drone_to_recover_id in drones_to_recover:
-            drone_task_obj = detailed_vehicle_task_data[drone_to_recover_id][node_id]
-            drone_task_obj.prcise_departure_time = node_service_timeline
-            drone_task_obj.dict_vehicle[v_id]['prcise_departure_time'] = node_service_timeline
-        
-        # 4. 计算并更新传递到下一个节点的累积延迟
-        # 新的延迟 = 最终离开时间 - 最初无延迟时的到达时间
-        # (这里假设 vehicle_arrival_time 是未被修改的原始计划时间)
-        original_arrival_time = task_obj.prcise_arrive_time
-        accumulated_delay += (task_obj.prcise_departure_time - original_arrival_time)
+            # 3.4 更新车辆在该节点的最终离开时间
+            # 当所有回收任务都完成后，服务时间线上的最终时间就是车辆的精确离开时间
+            task_obj.prcise_departure_time = node_service_timeline
+            for drone_to_recover_id in drones_to_recover:  # 将无人机全部回收完成后，统一处理。 
+                drone_task_obj = detailed_vehicle_task_data[drone_to_recover_id][node_id]
+                drone_task_obj.prcise_departure_time = node_service_timeline
+                drone_task_obj.dict_vehicle[v_id]['prcise_departure_time'] = node_service_timeline
+            # 进一步，更新承担或者待发射无人机的情况
+            for drone_to_launch_id in drones_to_launch:
+                drone_task_obj = detailed_vehicle_task_data[drone_to_launch_id][node_id]
+                drone_task_obj.prcise_departure_time = node_service_timeline
+                drone_task_obj.dict_vehicle[v_id]['prcise_departure_time'] = node_service_timeline
+            
+            # 4. 计算并更新传递到下一个节点的累积延迟
+            # 新的延迟 = 最终离开时间 - 最初无延迟时的到达时间
+            # (这里假设 vehicle_arrival_time 是未被修改的原始计划时间)
+            if node_service_timeline > task_obj.prcise_arrive_time:
+                original_arrival_time = task_obj.prcise_arrive_time
+                accumulated_delay += (task_obj.prcise_departure_time - original_arrival_time)
+            else:
+                original_arrival_time = task_obj.prcise_arrive_time
+                accumulated_delay += (task_obj.prcise_departure_time - original_arrival_time)
 
     return detailed_vehicle_task_data
 

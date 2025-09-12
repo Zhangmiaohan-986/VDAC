@@ -177,6 +177,9 @@ def low_update_time(uav_task_dict, best_uav_plan, best_vehicle_route, vehicle_ta
     # 根据更新后的detailed_vehicle_task_data，更新best_customer_plan, best_uav_plan
     uav_plan_time = update_uav_plan(detailed_vehicle_task_data, best_uav_plan)  # 更新精确时间的
     vehicle_plan_time = update_vehicle_arrive_time(detailed_vehicle_task_data, vehicle_arrival_time)
+    # 对uav_plan_time进行排序，按照launch_time排序
+    sorted_uav_plan_time = sorted(uav_plan_time.items(), key=lambda item: item[1]['launch_time'])
+    uav_plan_time = {k: v for k, v in sorted_uav_plan_time}
 
     return time_uav_task_dict, time_customer_plan, uav_plan_time, vehicle_plan_time, detailed_vehicle_task_data
 
