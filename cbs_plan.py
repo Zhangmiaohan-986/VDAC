@@ -281,8 +281,8 @@ def rolling_time_cbs(
                 update_recovery_task[mission_tuple] = recovery_time
                 print('回收时间产生改变。')
             work_time = recovery_time - launch_time
-            best_uav_plan[mission_tuple]['time'] = work_time
-            uav_route_cost, uav_time_cost = update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground) 
+            best_uav_plan[mission_tuple]['time'] = work_time  # 从发射到服务到降落的整体无人机任务时间
+            uav_route_cost, uav_time_cost = update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground, mission_tuple) 
             best_uav_plan[mission_tuple]['uav_route_cost'] = uav_route_cost
             best_uav_plan[mission_tuple]['uav_time_cost'] = uav_time_cost
             best_uav_cost[customer] = uav_route_cost
@@ -316,7 +316,7 @@ def update_launch_recovery_time(node, path_data, vehicle, drone_id):
     recovery_time = end_air_time + air_recovery_time
     return launch_time, recovery_time
 
-def update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground):
+def update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground, mission_tuple):
     uav_route_cost = 0
     route_length = 0
     uav_time_cost = vehicle[drone_id].time_cost * work_time
@@ -326,13 +326,19 @@ def update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_gro
     for i in range(len(air_route_list) - 1):
         current_node = air_route_list[i]
         next_node = air_route_list[i+1]
-        route_length += G_air[current_node][next_node]['weight']
-    init_node_alt = abs(node[launch_node].map_position[2] - node[launch_node].map_position[2])
-    end_node_alt = abs(node[recovery_node].map_position[2] - node[recovery_node].map_position[2])
-    route_length += init_node_alt + end_node_alt
+        if current_node == next_node:  # 处理无人机在原节点等待从而避障的情况
+            continue
+        else:
+            route_length += G_air[current_node][next_node]['weight']
+    init_node_alt = abs(node[launch_node].map_position[2] - node[launch_node].position[2])
+    end_node_alt = abs(node[recovery_node].map_position[2] - node[recovery_node].position[2])
+    drone_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = mission_tuple
+    # 还需考虑客户端的上下路线距离
+    cust_node_alt = 2 * abs(node[customer_node].position[2] - node[customer_node].map_position[2])
+    route_length += init_node_alt + end_node_alt + cust_node_alt  # 初始高度，降落高度，以及客户点的起飞和降落距离
     uav_route_cost = route_length * vehicle[drone_id].per_cost
 
-    return uav_route_cost, uav_time_cost
+    return uav_route_cost, uav_time_cost  # 分别输出以飞行距离和飞行成本为衡量的无人机任务成本
 
 # 设计基于滚动时间迭代的CBS算法，来获得精确的成本，以及精确的时间任务安排
 # --- 这里放入您提供的 detect_collision, standard_splitting 等函数 ---
@@ -514,7 +520,7 @@ class Time_cbs_Batch_Solver:
             
             root_paths[mission_tuple] = path
             # reservation_table_for_root = reservation_table
-            # 成本是所有任务完成时间之和
+            # 成本是所有任务完成时间之和,此处应该至到达节点上方对应的空中中继点处
             completion_time = path[-1][1]
             root_cost += completion_time 
 
@@ -671,7 +677,7 @@ class Time_cbs_Batch_Solver:
 
         该函数精确处理三个阶段的时空占用：
         1. 初始爬升：在第一个节点，从地面爬升到飞行高度的时间。
-        2. 水平飞行：在航线各段之间，飞行占用的时间。
+        2. 水平飞行：在航线各段之间，飞行占用的时间。同时考虑了客户点占用时间窗情况
         3. 最终降落：在最后一个节点，从飞行高度下降到地面的时间。
 
         :param reservation_table: 要更新的预留表。
@@ -714,30 +720,30 @@ class Time_cbs_Batch_Solver:
                 continue
             
             # 为了安全，保守地认为在整个飞行航段 [start_time, end_time] 内，
-            # 起点和终点两个节点都被占用。这可以防止另一架无人机在终点等待时发生冲突。
+            # 起点和终点两个节点都被占用。这可以防止另一架无人机在终点等待时发生冲突。该出可以表示服务节点的vtp节点也是被占用的情况
             nodes_to_reserve = [start_node, end_node]
             
             for index, node in enumerate(nodes_to_reserve):
                 if node not in reservation_table:
                     reservation_table[node] = []
-                    if index == 0:
-                        reservation_table[node].append({
-                            'start': start_time, 
-                            'end': end_time, 
-                            'arrive_time': start_time,
-                            'drone_id': drone_id,
-                            'mission_tuple': mission_tuple,
-                            'type': 'flight' # 添加类型方便调试
-                        })
-                    else:
-                        reservation_table[node].append({
-                            'start': start_time, 
-                            'end': end_time, 
-                            'arrive_time': end_time,
-                            'drone_id': drone_id,
-                            'mission_tuple': mission_tuple,
-                            'type': 'flight' # 添加类型方便调试
-                        })
+                if index == 0:
+                    reservation_table[node].append({
+                        'start': start_time, 
+                        'end': end_time, 
+                        'arrive_time': start_time,
+                        'drone_id': drone_id,
+                        'mission_tuple': mission_tuple,
+                        'type': 'flight' # 添加类型方便调试
+                    })
+                else:
+                    reservation_table[node].append({
+                        'start': start_time, 
+                        'end': end_time, 
+                        'arrive_time': end_time,
+                        'drone_id': drone_id,
+                        'mission_tuple': mission_tuple,
+                        'type': 'flight' # 添加类型方便调试
+                    })
 
         # --- 阶段3: 处理最终降落阶段的垂直下降占用 ---
         land_node, land_arrival_time = path[-1]
@@ -799,7 +805,7 @@ class Time_cbs_Batch_Solver:
             )
 
             if not path1:
-                # print(f"Debug: Path1 failed for {drone_id}")
+                print(f"找不到可行路径！Debug: Path1 failed for {drone_id}")
                 return None, None # 第一段就找不到路
             
             # 1. 计算各项时间
@@ -855,7 +861,7 @@ class Time_cbs_Batch_Solver:
             # 合并路径并返回
             # ------------------
             # 完整路径 = path1 + 在客户点等待的时间 + path2 (去掉重复的客户点)
-            full_path = path1 + path2[1:]
+            full_path = path1 + path2[1:]  # 第一个path1代表在第一次到达cus中的空中air的到达时间，第二个path2代表发射完成准备执行任务的path2
             # 更新预留表，以及无人机到达各个节点的到达时间
             return full_path, temp_reservation_table
 
@@ -876,7 +882,8 @@ class Time_cbs_Batch_Solver:
             for interval1, interval2 in itertools.combinations(intervals, 2):
                 if interval1['drone_id'] == interval2['drone_id']:
                     continue
-                if interval1['arrive_time'] == interval2['arrive_time']:
+                time_diff = abs(interval1['arrive_time'] - interval2['arrive_time'])
+                if time_diff < 1e-6:
                     collision_time = interval1['arrive_time']
                     colliding_agents = sorted([interval1['drone_id'], interval2['drone_id']])
                     collision = {
@@ -896,28 +903,6 @@ class Time_cbs_Batch_Solver:
                     )
                     if not is_duplicate:
                         all_collisions.append(collision)
-                # if max(interval1['start'], interval2['start']) < min(interval1['end'], interval2['end']):
-                #     collision_time = max(interval1['start'], interval2['start'])
-                #     colliding_agents = sorted([interval1['drone_id'], interval2['drone_id']])
-                #     # collision = {'agents': colliding_agents, 'loc': [node], 'time': collision_time, 'type': 'vertex'}
-                #     # 创建一个信息丰富的冲突对象
-                #     collision = {
-                #         'type': 'vertex',
-                #         'loc': [node],
-                #         'time': collision_time,
-                #         'participants': [
-                #             {'agent_id': interval1['drone_id'], 'mission_tuple': interval1['mission_tuple']},
-                #             {'agent_id': interval2['drone_id'], 'mission_tuple': interval2['mission_tuple']}
-                #         ]
-                #     }
-                #     # 去重逻辑：确保同一对无人机在同一点的冲突只报告一次
-                #     is_duplicate = any(
-                #         c['type'] == 'vertex' and c['loc'][0] == node and 
-                #         set(p['agent_id'] for p in c['participants']) == {interval1['drone_id'], interval2['drone_id']}
-                #         for c in all_collisions
-                #     )
-                #     if not is_duplicate:
-                #         all_collisions.append(collision)
 
         # 1b. 检测边冲突 (交换冲突)
         path_items = list(paths.items())
@@ -943,18 +928,6 @@ class Time_cbs_Batch_Solver:
                     time_overlap = max(p1_start_time, p2_start_time) < min(p1_end_time, p2_end_time)
 
                     if time_overlap:
-                        # colliding_agents = sorted([drone1_id, drone2_id])
-                        
-                        # 【重要】创建一个更富信息的冲突对象，保留双方的方向信息
-                        # collision = {
-                        #     'agents': colliding_agents,
-                        #     'type': 'edge',
-                        #     # 'details' 包含了生成正确约束所需的所有信息
-                        #     'details': {
-                        #         drone1_id: {'loc': [p1_start_node, p1_end_node], 'time': p1_end_time},
-                        #         drone2_id: {'loc': [p2_start_node, p2_end_node], 'time': p2_end_time}
-                        #     }
-                        # }
                         collision = {
                         'type': 'edge',
                         'participants': [
@@ -1062,35 +1035,6 @@ class Time_cbs_Batch_Solver:
             return None
 
 
-    # def _create_constraint_from_collision(self, collision, agent_id_to_constrain, mission_tuple):
-    #     """
-    #     根据一个检测到的冲突，为其中一个智能体生成一个CBS约束。
-    #     此版本能处理顶点和【修正后的】边冲突。
-    #     """
-    #     if collision['type'] == 'vertex':
-    #         # 顶点冲突，loc是共享的
-    #         return {
-    #             'agent': agent_id_to_constrain,
-    #             'loc': collision['loc'],
-    #             'time': collision['time'],
-    #             'type': 'vertex',
-    #             'mission_tuple': mission_tuple
-    #         }
-    #     elif collision['type'] == 'edge':
-    #         # 边冲突，从'details'中提取特定于该智能体的有向loc和时间
-    #         constraint_details = collision['details'][agent_id_to_constrain]
-    #         return {
-    #             'agent': agent_id_to_constrain,
-    #             'loc': constraint_details['loc'],  # 正确的有向loc, e.g., ['A', 'B']
-    #             'time': constraint_details['time'], # 该智能体到达目标点的时间
-    #             'type': 'edge',
-    #             'mission_tuple': mission_tuple
-    #         }
-    #     else:
-    #         # 其他或未知的冲突类型
-    #         return None
-
-
     # (这个函数需要放在Time_cbs类之外，或者作为其静态方法)
     def spatio_temporal_a_star(self, graph, start_node, goal_node, launch_time, heuristic, constraints, reservation_table, drone_id):
         """
@@ -1109,7 +1053,6 @@ class Time_cbs_Batch_Solver:
         # start_node = self.node[start_node].map_key
         # goal_node = self.node[goal_node].map_key,开始节点均输入为空中网络节点，cbs只负责空中层次网络规划，通过预留表给每个节点的起降位置占用节点时间执行更新
         heapq.heappush(open_list, (launch_time + heuristic[start_node]/self.vehicle[drone_id].cruiseSpeed, launch_time, (launch_time, start_node)))
-        # came_from[ (time, node) ] = (prev_time, prev_node)
         came_from = {}
         g_score = { (launch_time, start_node): launch_time }
         
@@ -1135,7 +1078,7 @@ class Time_cbs_Batch_Solver:
                 # --- 1. 计算基础旅行时间和到达时间 ---
                 if neighbor == current_node:
                     # 这是“原地等待”动作
-                    travel_time = 0.02  # 假设等待的最小时间步长为1
+                    travel_time = 0.02  # 假设等待的最小时间步长为1，此处表明原地等待0.02s
                 else:
                     # 这是“移动到邻居”动作
                     edge_data = graph.get_edge_data(current_node, neighbor)
@@ -1149,15 +1092,15 @@ class Time_cbs_Batch_Solver:
                 
                 while True:
                     # 假设 last_conflict_end_time 初始化为-1
-                    last_conflict_end_time = -1
+                    last_conflict_end_time = -1  # 记录所有冲突的最晚结束时间（用于后续跳转）
 
                     # 1. 检查CBS约束 (这部分仍然需要线性扫描)
                     is_constrained = False
                     temp_arrival_time = safe_arrival_time
 
-                    while True: # 内循环检查CBS约束
-                        cbs_conflict_found = False
-                        # 检查顶点约束
+                    while True: # 内循环检查CBS约束 # 临时变量，用于调整时间,起始点跟随发射冲突
+                        cbs_conflict_found = False # 标记是否发现CBS冲突
+                        # 检查顶点约束  # CBS约束格式：{'loc': [节点1, 节点2], 'time': 时间} → 边约束（某边某时间不可用
                         for c in constraints:
                             if len(c['loc']) == 1 and c['loc'][0] == neighbor and c['time'] == temp_arrival_time:
                                 cbs_conflict_found = True
@@ -1171,7 +1114,7 @@ class Time_cbs_Batch_Solver:
                         
                         if cbs_conflict_found:
                             last_conflict_end_time = max(last_conflict_end_time, temp_arrival_time)
-                            temp_arrival_time += 0.02 # 如果CBS约束冲突，只能+1，因为约束是离散的点
+                            temp_arrival_time += 0.017 # 如果CBS约束冲突，只能+1，因为约束是离散的点
                         else:
                             break # 没有CBS约束冲突，跳出内循环
                     
@@ -1199,7 +1142,7 @@ class Time_cbs_Batch_Solver:
 
                     if reservation_conflict_found or last_conflict_end_time != -1:
                         if cbs_conflict_found:
-                                safe_arrival_time += 0.01 
+                                safe_arrival_time += 0.02 
                         # 如果是预留表冲突（时间段），可以智能跳转到冲突结束的时刻
                         if reservation_conflict_found:
                             safe_arrival_time = max(safe_arrival_time, last_conflict_end_time)
@@ -1222,111 +1165,3 @@ class Time_cbs_Batch_Solver:
                     came_from[next_state] = current_state
         return None # 未找到路径
         print('无人机的低空城市走廊规划任务中找到了无解的路径，请检查任务后重新规划')
-
-
-# def rolling_time_cbs(time_uav_plan, G_air, launch_recovery_duration=3):
-#     """
-#     基于滚动时间迭代的CBS算法
-#     :param time_uav_plan: {uav_id: {'launch_time': t, 'start_node': s, 'end_node': e, ...}}
-#     :param G_air: NetworkX空中网络图
-#     :param launch_recovery_duration: 无人机起飞/降落占用节点的时长
-#     :return: (final_paths, final_costs)
-#     """
-#     # 1. 初始化
-#     sorted_missions = sorted(time_uav_plan.items(), key=lambda item: item[1]['launch_time'])
-#     unplanned_missions_q = deque([item[0] for item in sorted_missions]) # 使用双端队列，方便操作
-    
-#     global_reservation_table = {} # {(node, time): uav_id}
-#     final_paths = {}
-    
-#     # 预计算启发式，避免重复计算
-#     heuristics = {}
-#     for node in G_air.nodes():
-#         heuristics[node] = nx.single_source_dijkstra_path_length(G_air, node, weight='weight')
-        
-#     # 2. 滚动循环
-#     while unplanned_missions_q:
-#         # 2.1. 选择批次
-#         anchor_uav_id = unplanned_missions_q[0]
-#         anchor_mission = time_uav_plan[anchor_uav_id]
-        
-#         # 估计锚点无人机的任务结束时间来定义时间窗口
-#         t_start = anchor_mission['launch_time']
-#         est_travel_time = heuristics[anchor_mission['start_node']].get(anchor_mission['end_node'], 100) # 100为默认值
-#         t_end_window = t_start + est_travel_time + launch_recovery_duration
-        
-#         current_batch_ids = []
-#         MAX_BATCH_SIZE = 5 # 超参数：限制批次大小
-        
-#         # 将在时间窗口内发射的无人机加入批次
-#         temp_q = unplanned_missions_q.copy()
-#         while temp_q:
-#             uav_id = temp_q.popleft()
-#             if time_uav_plan[uav_id]['launch_time'] <= t_end_window and len(current_batch_ids) < MAX_BATCH_SIZE:
-#                 current_batch_ids.append(uav_id)
-#             else:
-#                 break # 超出时间窗口或批次大小
-
-#         print(f"\n--- New Rolling Batch ---")
-#         print(f"Anchor UAV: {anchor_uav_id}, Time Window Start: {t_start}")
-#         print(f"Batch UAVs: {current_batch_ids}")
-
-#         current_batch_missions = {uid: {
-#             'launch_time': time_uav_plan[uid]['launch_time'],
-#             'start': time_uav_plan[uid]['start_node'],
-#             'end': time_uav_plan[uid]['end_node']
-#         } for uid in current_batch_ids}
-        
-#         # 2.2. 运行CBS
-#         cbs_solver = Time_cbs(current_batch_missions, G_air, global_reservation_table)
-#         batch_paths = cbs_solver.run()
-        
-#         # 2.3. 处理CBS结果
-#         if batch_paths is None:
-#             # 异常处理：如果批次无解，缩小批次重试
-#             # 这里简化处理：我们只规划锚点无人机，其他的下次再试
-#             print(f"Warning: CBS failed for batch {current_batch_ids}. Planning for anchor UAV only.")
-#             current_batch_ids = [anchor_uav_id]
-#             current_batch_missions = {uid: current_batch_missions[uid] for uid in current_batch_ids}
-#             cbs_solver = Time_cbs(current_batch_missions, G_air, global_reservation_table)
-#             batch_paths = cbs_solver.run()
-
-#             if batch_paths is None:
-#                 # 如果单个都规划不出来，说明问题严重
-#                 raise RuntimeError(f"Could not find a path even for a single UAV: {anchor_uav_id}")
-        
-#         # 2.4. 更新全局状态
-#         for uav_id, path in batch_paths.items():
-#             final_paths[uav_id] = path
-#             unplanned_missions_q.remove(uav_id) # 从待规划队列中移除
-            
-#             # 更新全局预留表
-#             # 1. 预留路径上的点
-#             for node, time in path:
-#                 global_reservation_table[(node, time)] = uav_id
-            
-#             # 2. 预留起飞和降落过程
-#             start_node, launch_time = path[0]
-#             end_node, recovery_time = path[-1]
-#             for i in range(launch_recovery_duration):
-#                 global_reservation_table[(start_node, launch_time + i)] = uav_id
-#                 global_reservation_table[(end_node, recovery_time + i)] = uav_id
-
-#     # 3. 格式化并返回最终结果
-#     # 您的代码需要 `best_uav_plan` 和 `uav_cost_list`
-#     best_uav_plan = time_uav_plan.copy()
-#     uav_cost_list = {}
-#     for uav_id, path in final_paths.items():
-#         # 更新plan中的详细时间安排
-#         best_uav_plan[uav_id]['path'] = path
-#         best_uav_plan[uav_id]['actual_launch_time'] = path[0][1]
-#         best_uav_plan[uav_id]['actual_recovery_time'] = path[-1][1] + launch_recovery_duration
-#         # 计算成本（例如总时长）
-#         cost = path[-1][1] - path[0][1]
-#         uav_cost_list[uav_id] = cost
-        
-#     print("\n--- Rolling Time CBS Completed ---")
-#     print(f"All {len(final_paths)} UAV missions planned.")
-    
-#     # 这里我们只返回与无人机相关的部分，您可以根据需要调整
-#     return None, None, best_uav_plan, uav_cost_list
