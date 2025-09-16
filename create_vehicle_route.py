@@ -137,7 +137,8 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = save_input_data(input_data)
     uav_task_dict, best_customer_plan, best_uav_plan, best_vehicle_route, vehicle_task_data, vehicle_arrival_time,node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee = run_low_update_time_from_saved(input_filename)
     # 得到粗略的初始方案后，先对粗略的初始方案规划正确的无人机及车辆的时间，并进行简单的任务分配情况描述uav_task_dict, best_uav_plan, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, node, V, T, vehicle, uav_travel
-    time_uav_task_dict, time_customer_plan, time_uav_plan, vehicle_plan_time, vehicle_task_data = low_update_time(uav_task_dict, best_uav_plan, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, node, V, T, vehicle, uav_travel)
+    time_uav_task_dict, time_customer_plan, time_uav_plan, vehicle_plan_time, vehicle_task_data = low_update_time(uav_task_dict, best_uav_plan, 
+    best_vehicle_route, vehicle_task_data, vehicle_arrival_time, node, V, T, vehicle, uav_travel)
     # solution_filename = save_solution_data(
     #     time_uav_task_dict,
     #     time_customer_plan,
@@ -147,7 +148,10 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # )
     # time_uav_task_dict, time_customer_plan, time_uav_plan, vehicle_plan_time, vehicle_task_data = load_solution_data(solution_filename)
     # 针对已有的车辆路线及无人机任务，计算详细的时间分配，运用结合时间迭代的cbs算法规划无避障的空中路径。
-    best_uav_plan, best_uav_cost, vehicle_plan_time, best_vehicle_task_data, global_reservation_table = rolling_time_cbs(vehicle_arrival_time, best_vehicle_route, time_uav_task_dict, time_customer_plan, time_uav_plan, vehicle_plan_time, vehicle_task_data, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee)
+    best_uav_plan, best_uav_cost, vehicle_plan_time, best_vehicle_task_data, global_reservation_table = rolling_time_cbs(vehicle_arrival_time, 
+    best_vehicle_route, time_uav_task_dict, time_customer_plan, time_uav_plan, vehicle_plan_time, vehicle_task_data, node, DEPOT_nodeID, 
+    V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, 
+    air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee)
     
     # 根据重新规划好的新方案，重新计算总成本
     best_total_cost = calculate_plan_cost(best_uav_cost, best_vehicle_route, vehicle, T, V, veh_distance)

@@ -203,7 +203,9 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		# best_global_reservation_table_list.append([])
 
 		# 获得高质量初始卡车路径分配方案
-		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID,
+		 V, T, vehicle, uav_travel, veh_distance, veh_travel, 
+		N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee)
 		# # 处理空跑节点
 		# rm_empty_vehicle_route, empty_nodes_by_vehicle = rm_empty_node(init_customer_plan, init_vehicle_route)
@@ -216,7 +218,9 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			init_total_cost, init_uav_plan, init_customer_plan, init_uav_cost,
 			init_time_uav_task_dict, init_vehicle_route, 
 			init_vehicle_plan_time, init_vehicle_task_data, 
-			init_global_reservation_table, vehicle, T, V, veh_distance, veh_travel
+			init_global_reservation_table, node, DEPOT_nodeID, 
+			V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, 
+			air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee
 		)
 		
 		# 使用高效ALNS求解（增量式算法，避免深拷贝）

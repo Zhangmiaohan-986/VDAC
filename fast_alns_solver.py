@@ -44,7 +44,11 @@ class FastMfstspState:
     
     def __init__(self, vehicle_routes, uav_assignments, customer_plan,
                  vehicle_task_data, global_reservation_table, total_cost=None, init_uav_plan=None, uav_cost=None,
-                 init_vehicle_plan_time=None, vehicle=None, T=None, V=None, veh_distance=None, veh_travel=None):
+                 init_vehicle_plan_time=None, 
+                 node=None, DEPOT_nodeID=None, V=None, T=None, vehicle=None, uav_travel=None, veh_distance=None, 
+                 veh_travel=None, N=None, N_zero=None, N_plus=None, A_total=None, A_cvtp=None, A_vtp=None, 
+                 A_aerial_relay_node=None, G_air=None, G_ground=None, air_matrix=None, ground_matrix=None, 
+                 air_node_types=None, ground_node_types=None, A_c=None, xeee=None):
 
         self.vehicle_routes = vehicle_routes
         self.uav_assignments = uav_assignments
@@ -55,11 +59,27 @@ class FastMfstspState:
         self.uav_plan = init_uav_plan
         self.uav_cost = uav_cost
         self.vehicle_plan_time = init_vehicle_plan_time
+        self.node = node
+        self.DEPOT_nodeID = DEPOT_nodeID
         self.vehicle = vehicle
-        self.T = T
-        self.V = V
+        self.uav_travel = uav_travel
         self.veh_distance = veh_distance
         self.veh_travel = veh_travel
+        self.N = N
+        self.N_zero = N_zero
+        self.N_plus = N_plus
+        self.A_total = A_total
+        self.A_cvtp = A_cvtp
+        self.A_vtp = A_vtp
+        self.A_aerial_relay_node = A_aerial_relay_node
+        self.G_air = G_air
+        self.G_ground = G_ground
+        self.air_matrix = air_matrix
+        self.ground_matrix = ground_matrix
+        self.air_node_types = air_node_types
+        self.ground_node_types = ground_node_types
+        self.A_c = A_c
+        self.xeee = xeee
         self.update_rm_empty_task()  # 更新空跑节点及其任务状态
         self.rm_empty_vehicle_arrive_time = self.calculate_rm_empty_vehicle_arrive_time()
         # 记录修改历史，用于快速回滚
@@ -84,6 +104,27 @@ class FastMfstspState:
                     arrive_time_dict[node_j] = arrive_time_dict[node_i] + self.veh_travel[vehicle_id][node_i][node_j]
             rm_empty_vehicle_arrive_time[vehicle_id] = arrive_time_dict
         return rm_empty_vehicle_arrive_time
+    
+    # 设计一个函数，其主要功能为基于处理掉空跑节点后，根据无人机的任务分配，重新规划整体时间
+    def re_update_time(self):
+        """
+        基于处理掉空跑节点后，根据无人机的任务分配，重新规划整体时间
+        """
+        self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, self.re_vehicle_plan_time, self.re_vehicle_task_data = low_update_time(self.uav_task_dict, 
+        self.uav_plan, self.vehicle_routes, self.vehicle_task_data, self.vehicle_arrive_time, 
+        self.node, self.V, self.T, self.vehicle, self.uav_travel)
+
+        self.final_uav_plan, self.final_uav_cost, self.final_vehicle_plan_time, self.final_vehicle_task_data, 
+        self.final_global_reservation_table = rolling_time_cbs(self.vehicle_arrive_time, 
+        self.vehicle_routes, self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, 
+        self.re_vehicle_plan_time, self.re_vehicle_task_data, self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, 
+        self.uav_travel, self.veh_distance, self.veh_travel, self.N, self.N_zero, self.N_plus, self.A_total, self.A_cvtp, 
+        self.A_vtp, self.A_aerial_relay_node, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, 
+        self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
+
+        return self.final_uav_plan, self.final_uav_cost, self.final_vehicle_plan_time, self.final_vehicle_task_data, self.final_global_reservation_table
+    
+
 
     def objective(self):
         """目标函数：计算总成本"""
@@ -991,8 +1032,11 @@ class IncrementalALNS:
 def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan, init_uav_cost,
                              init_time_uav_task_dict, init_vehicle_route, 
                              init_vehicle_plan_time, init_vehicle_task_data, 
-                             init_global_reservation_table,
-                             vehicle, T, V, veh_distance, veh_travel):
+                             init_global_reservation_table,node, DEPOT_nodeID, 
+                             V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, 
+                             A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, 
+                             air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee
+                             ):
     """
     从初始解创建FastMfstspState对象
     """
@@ -1016,7 +1060,25 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
         T = T,
         V = V,
         veh_distance = veh_distance,
-        veh_travel = veh_travel
+        veh_travel = veh_travel,
+        node = node,
+        DEPOT_nodeID = DEPOT_nodeID,
+        uav_travel = uav_travel,
+        N = N,
+        N_zero = N_zero,
+        N_plus = N_plus,
+        A_total = A_total,
+        A_cvtp = A_cvtp,
+        A_vtp = A_vtp,
+        A_aerial_relay_node = A_aerial_relay_node,
+        G_air = G_air,
+        G_ground = G_ground,
+        air_matrix = air_matrix,
+        ground_matrix = ground_matrix,
+        air_node_types = air_node_types,
+        ground_node_types = ground_node_types,
+        A_c = A_c,
+        xeee = xeee
     )
 
 
