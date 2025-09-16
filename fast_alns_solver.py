@@ -36,6 +36,7 @@ from alns.accept import HillClimbing, SimulatedAnnealing
 from alns.select import RouletteWheel, AlphaUCB
 from alns.stop import MaxRuntime, MaxIterations
 from destroy_repair_operator import *
+from initialize import deep_copy_vehicle_task_data
 
 class FastMfstspState:
     """
@@ -66,6 +67,8 @@ class FastMfstspState:
         self.veh_distance = veh_distance
         self.veh_travel = veh_travel
         self.N = N
+        self.V = V
+        self.T = T
         self.N_zero = N_zero
         self.N_plus = N_plus
         self.A_total = A_total
@@ -80,10 +83,13 @@ class FastMfstspState:
         self.ground_node_types = ground_node_types
         self.A_c = A_c
         self.xeee = xeee
-        self.update_rm_empty_task()  # 更新空跑节点及其任务状态
+        self.rm_empty_vehicle_task_data = deep_copy_vehicle_task_data(self.vehicle_task_data)
+        self.update_rm_empty_task()  # 更新空跑节点及其任务状态，后续需要删除空跑节点对应的key
         self.rm_empty_vehicle_arrive_time = self.calculate_rm_empty_vehicle_arrive_time()
         # 记录修改历史，用于快速回滚
         self._modification_history = []
+        self.base_vehicle_task_data = deep_copy_vehicle_task_data(self.vehicle_task_data)
+        self.re_update_time(self.rm_empty_vehicle_route, self.rm_empty_vehicle_arrive_time, self.base_vehicle_task_data)
     
     def calculate_rm_empty_vehicle_arrive_time(self):  # 实际是计算去除空跑节点后每辆车到达各节点的时间
         """
@@ -92,7 +98,7 @@ class FastMfstspState:
         """
         rm_empty_vehicle_arrive_time = {}
         # for vehicle_id, route in enumerate(self.rm_empty_vehicle_route):
-        for vehicle_id, route in enumerate(self.vehicle_routes):
+        for vehicle_id, route in enumerate(self.rm_empty_vehicle_route):
             vehicle_id = vehicle_id + 1
             arrive_time_dict = {}
             for idx, node_j in enumerate(route):
@@ -106,23 +112,23 @@ class FastMfstspState:
         return rm_empty_vehicle_arrive_time
     
     # 设计一个函数，其主要功能为基于处理掉空跑节点后，根据无人机的任务分配，重新规划整体时间
-    def re_update_time(self):
+    def re_update_time(self, vehicle_route, vehicle_arrive_time, vehicle_task_data):
         """
         基于处理掉空跑节点后，根据无人机的任务分配，重新规划整体时间
         """
-        self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, self.re_vehicle_plan_time, self.re_vehicle_task_data = low_update_time(self.uav_task_dict, 
-        self.uav_plan, self.vehicle_routes, self.vehicle_task_data, self.vehicle_arrive_time, 
+        new_vehicle_task_data = vehicle_task_data.copy()  # 待处理
+        self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, self.re_vehicle_plan_time, self.re_vehicle_task_data = low_update_time(self.uav_assignments, 
+        self.uav_plan, vehicle_route, new_vehicle_task_data, vehicle_arrive_time, 
         self.node, self.V, self.T, self.vehicle, self.uav_travel)
 
-        self.final_uav_plan, self.final_uav_cost, self.final_vehicle_plan_time, self.final_vehicle_task_data, 
-        self.final_global_reservation_table = rolling_time_cbs(self.vehicle_arrive_time, 
-        self.vehicle_routes, self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, 
-        self.re_vehicle_plan_time, self.re_vehicle_task_data, self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, 
+        final_uav_plan, final_uav_cost, final_vehicle_plan_time, final_vehicle_task_data, final_global_reservation_table = rolling_time_cbs(vehicle_arrive_time, 
+        vehicle_route, self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, 
+        self.re_vehicle_plan_time, new_vehicle_task_data, self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, 
         self.uav_travel, self.veh_distance, self.veh_travel, self.N, self.N_zero, self.N_plus, self.A_total, self.A_cvtp, 
         self.A_vtp, self.A_aerial_relay_node, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, 
         self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
 
-        return self.final_uav_plan, self.final_uav_cost, self.final_vehicle_plan_time, self.final_vehicle_task_data, self.final_global_reservation_table
+        return final_uav_plan, final_uav_cost, final_vehicle_plan_time, final_vehicle_task_data, final_global_reservation_table
     
 
 

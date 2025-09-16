@@ -64,6 +64,15 @@ class Task:
             'details': self.details
         }
     
+    def copy(self):
+        """创建任务的副本"""
+        return Task(
+            task_type=self.task_type,
+            start_time=self.start_time,
+            end_time=self.end_time,
+            details=self.details.copy() if self.details else None
+        )
+    
 class VehicleInfo:
     def __init__(self):
         self.drone_belong = None
