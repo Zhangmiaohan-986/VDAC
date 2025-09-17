@@ -292,7 +292,8 @@ def rolling_time_cbs(
             for mission_tuple, recovery_time in sorted_recovery_task:
                 drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle = mission_tuple
                 delta_time = time_uav_plan[mission_tuple]['recovery_time'] - best_uav_plan[mission_tuple]['recovery_time']
-                vehicle_task_data = update_delta_time(delta_time, vehicle_task_data, best_vehicle_route, mission_tuple, vehicle)
+                if delta_time > 0:  # 如果回收时间比原计划大，则需要更新detailed_vehicle_task_data
+                    vehicle_task_data = update_delta_time(delta_time, vehicle_task_data, best_vehicle_route, mission_tuple, vehicle)
         
         # 3. 从待规划队列中移除已完成的任务 (使用deque的高效popleft)
         for _ in range(len(batch_result)):
