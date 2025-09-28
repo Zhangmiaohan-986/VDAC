@@ -37,7 +37,7 @@ from alns.select import RouletteWheel, AlphaUCB
 from alns.stop import MaxRuntime, MaxIterations
 from destroy_repair_operator import *
 from initialize import deep_copy_vehicle_task_data
-
+from cost_y import calculate_plan_cost
 class FastMfstspState:
     """
     高效的mFSTSP解状态类 - 使用浅拷贝和增量更新
@@ -127,7 +127,7 @@ class FastMfstspState:
         self.uav_travel, self.veh_distance, self.veh_travel, self.N, self.N_zero, self.N_plus, self.A_total, self.A_cvtp, 
         self.A_vtp, self.A_aerial_relay_node, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, 
         self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
-
+        self.final_total_cost = calculate_plan_cost(final_uav_cost, vehicle_route, self.vehicle, self.T, self.V, self.veh_distance)
         return final_uav_plan, final_uav_cost, final_vehicle_plan_time, final_vehicle_task_data, final_global_reservation_table
     
 
