@@ -90,6 +90,7 @@ class FastMfstspState:
         self._modification_history = []
         self.base_vehicle_task_data = deep_copy_vehicle_task_data(self.vehicle_task_data)
         self.re_update_time(self.rm_empty_vehicle_route, self.rm_empty_vehicle_arrive_time, self.base_vehicle_task_data)
+        self.check_all_vehicle_finish_task_time(self.re_vehicle_plan_time)
     
     def calculate_rm_empty_vehicle_arrive_time(self):  # 实际是计算去除空跑节点后每辆车到达各节点的时间
         """
@@ -120,17 +121,31 @@ class FastMfstspState:
         self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, self.re_vehicle_plan_time, self.re_vehicle_task_data = low_update_time(self.uav_assignments, 
         self.uav_plan, vehicle_route, new_vehicle_task_data, vehicle_arrive_time, 
         self.node, self.V, self.T, self.vehicle, self.uav_travel)
-
+        # 输出更修车辆后的详细方案及时间分配等情况
         final_uav_plan, final_uav_cost, final_vehicle_plan_time, final_vehicle_task_data, final_global_reservation_table = rolling_time_cbs(vehicle_arrive_time, 
         vehicle_route, self.re_time_uav_task_dict, self.re_time_customer_plan, self.re_time_uav_plan, 
-        self.re_vehicle_plan_time, new_vehicle_task_data, self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, 
+        self.re_vehicle_plan_time, self.re_vehicle_task_data, self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, 
         self.uav_travel, self.veh_distance, self.veh_travel, self.N, self.N_zero, self.N_plus, self.A_total, self.A_cvtp, 
         self.A_vtp, self.A_aerial_relay_node, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, 
         self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
         self.final_total_cost = calculate_plan_cost(final_uav_cost, vehicle_route, self.vehicle, self.T, self.V, self.veh_distance)
         return final_uav_plan, final_uav_cost, final_vehicle_plan_time, final_vehicle_task_data, final_global_reservation_table
     
-
+    # 设计功能函数，主要判断所有车辆全部完成任务后的总任务时间
+    def check_all_vehicle_finish_task_time(self, vehicle_plan_time):
+        """
+        判断所有车辆全部完成任务后的总任务时间
+        vehicle_plan_time格式: {vehicle_id: {node_id: [start_time, end_time]}}
+        """
+        # 计算所有车辆完成任务后的总任务时间
+        total_task_time = 0
+        for vehicle_id, node_times in vehicle_plan_time.items():
+            if node_times:
+                # 找到该车辆所有任务中的最大结束时间
+                latest_finish_time_for_vehicle = max(times[1] for times in node_times.values())
+                total_task_time += latest_finish_time_for_vehicle
+        # print("所有车辆全部完成任务后的总任务时间：", total_task_time)
+        return total_task_time
 
     def objective(self):
         """目标函数：计算总成本"""

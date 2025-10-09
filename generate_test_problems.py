@@ -12,8 +12,8 @@ def generate_points(num_points,seed):
 
     # file_path_R201 = r'/Volumes/Zhang/TRE-双层路网协同巡检调度优化/coding/tits_CMDVRP-CT/tits_CMDVRP-CT/map/R201.txt'
     # file_path_RC101 = r'/Volumes/Zhang/TRE-双层路网协同巡检调度优化/coding/tits_CMDVRP-CT/tits_CMDVRP-CT/map/RC101.txt'
-    file_path_R201 = r'D:\猫咪同步\BaiduSyncdisk\猫咪Pycharm算法合集\coding\coding\tits_CMDVRP-CT\tits_CMDVRP-CT\map\R201.txt'
-    file_path_RC101 = r'D:\猫咪同步\BaiduSyncdisk\猫咪Pycharm算法合集\coding\coding\tits_CMDVRP-CT\tits_CMDVRP-CT\map\RC101.txt'
+    file_path_R201 = r'VDAC\map_test\R201.txt'
+    file_path_RC101 = r'VDAC\map_test\RC101.txt'
     np.random.seed(seed)
     with open(file_path_R201, 'r') as file:
         data0_R201 = file.read()
