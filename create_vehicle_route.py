@@ -297,8 +297,8 @@ class DiverseRouteGenerator:
                             drone_task = vehicle_task_data[drone_id][node_id]
                             if vehicle_id in drone_task.dict_vehicle:
                                 drone_task.dict_vehicle[vehicle_id]['drone_belong'] = vehicle_id
-                                drone_task.dict_vehicle[vehicle_id]['precise_arrive_time'] = 0
-                                drone_task.dict_vehicle[vehicle_id]['precise_departure_time'] = 0
+                                drone_task.dict_vehicle[vehicle_id]['prcise_arrive_time'] = 0
+                                drone_task.dict_vehicle[vehicle_id]['prcise_departure_time'] = 0
                                 drone_task.dict_vehicle[vehicle_id]['launch_drone_list'] = []
                                 drone_task.dict_vehicle[vehicle_id]['recovery_drone_list'] = []
                             

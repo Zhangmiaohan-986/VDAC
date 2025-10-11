@@ -101,8 +101,8 @@ def create_vehicle_info_dict():
     """
     return {
         "drone_belong": None,
-        "precise_arrive_time": 0,
-        "precise_departure_time": 0,
+        "prcise_arrive_time": 0,
+        "prcise_departure_time": 0,
         "arrive_times": [],
         "departure_times": [],
         "task": {}  # 注意：这里也需要一个自定义的 add_task 逻辑

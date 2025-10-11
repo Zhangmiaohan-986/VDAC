@@ -23,7 +23,7 @@ from mfstsp_heuristic_3_timing import *
 
 from local_search import *
 from rm_node_sort_node import rm_empty_node
-
+from task_data import *
 import main
 import endurance_calculator
 import distance_functions
@@ -524,7 +524,7 @@ class IncrementalALNS:
                 repaired_state.uav_cost[customer_node] = best_cost
                 
                 # 更新vehicle_task_data
-                repaired_state.vehicle_task_data = self.update_vehicle_task(
+                repaired_state.vehicle_task_data = update_vehicle_task(
                     repaired_state.vehicle_task_data, best_scheme, vehicle_route
                 )
                 
@@ -570,7 +570,7 @@ class IncrementalALNS:
                             if task[2] != remove_customer
                         ]
                     
-                    vehicle_task_data = self.remove_vehicle_task(vehicle_task_data, y, vehicle_route)
+                    vehicle_task_data = remove_vehicle_task(vehicle_task_data, y, vehicle_route)
                 
                 # 根据时间优先级选择插入方案
                 if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
@@ -585,7 +585,7 @@ class IncrementalALNS:
                         repaired_state.uav_assignments[new_drone_id] = []
                     repaired_state.uav_assignments[new_drone_id].append(best_new_y)
                     
-                    vehicle_task_data = self.update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
                     final_scheme = best_new_y
                     final_cost = best_new_cost
                 else:
@@ -600,7 +600,7 @@ class IncrementalALNS:
                         repaired_state.uav_assignments[orig_drone_id] = []
                     repaired_state.uav_assignments[orig_drone_id].append(best_orig_y)
                     
-                    vehicle_task_data = self.update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
                     final_scheme = best_orig_y
                     final_cost = best_orig_cost
                 
@@ -1119,10 +1119,37 @@ class IncrementalALNS:
                 # 更新破坏的无人机空中成本
                 if new_state.uav_cost and customer_node in new_state.uav_cost:
                     new_state.uav_cost.pop(customer_node, None)
+                # 进一步通过链式找到这个无人机后续的所有服务任务，同车则不变，异车则全部删除对应的后续所有任务，并整理出所有需要删除的任务
+                need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, new_state.vehicle_task_data)
                 
+                # 处理链式删除的任务
+                for chain_customer, chain_assignment in need_to_remove_tasks:
+                    if chain_customer in new_state.customer_plan:
+                        chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
+                        
+                        # 记录被破坏客户节点的详细信息
+                        chain_customer_info = [chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle, new_state.uav_cost.get(chain_customer, 0) if new_state.uav_cost else 0]
+                        destroyed_customers_info[chain_customer] = chain_customer_info
+                        
+                        # 从customer_plan中移除
+                        new_state.customer_plan.pop(chain_customer, None)
+                        
+                        # 从无人机分配中移除相关任务
+                        if chain_uav_id in new_state.uav_assignments:
+                            new_state.uav_assignments[chain_uav_id] = [
+                                task for task in new_state.uav_assignments[chain_uav_id]
+                                if task[2] != chain_customer_node
+                            ]
+                        
+                        # 更新破坏的无人机空中成本
+                        if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
+                            new_state.uav_cost.pop(chain_customer_node, None)
+                        
+                        print(f"链式删除客户点 {chain_customer}")
+
                 # 更新对应的vehicle_task_data
                 vehicle_task_data = new_state.vehicle_task_data
-                vehicle_task_data = self.remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
+                vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
                 new_state.vehicle_task_data = vehicle_task_data
         # 5. 更新空跑节点等状态
         # new_state.update_rm_empty_task()
@@ -1305,47 +1332,47 @@ class IncrementalALNS:
 
         return customer_vtp_dict
 
-    def remove_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
-        """
-        从vehicle_task_data中移除指定的任务分配
-        """
-        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+    # def remove_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
+    #     """
+    #     从vehicle_task_data中移除指定的任务分配
+    #     """
+    #     uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
         
-        # 从发射车辆的任务数据中移除
-        if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
-            task_data = vehicle_task_data[launch_vehicle][launch_node]
-            if hasattr(task_data, 'launch_drone_list') and uav_id in task_data.launch_drone_list:
-                task_data.launch_drone_list.remove(uav_id)
+    #     # 从发射车辆的任务数据中移除
+    #     if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
+    #         task_data = vehicle_task_data[launch_vehicle][launch_node]
+    #         if hasattr(task_data, 'launch_drone_list') and uav_id in task_data.launch_drone_list:
+    #             task_data.launch_drone_list.remove(uav_id)
         
-        # 从回收车辆的任务数据中移除
-        if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
-            task_data = vehicle_task_data[recovery_vehicle][recovery_node]
-            if hasattr(task_data, 'recovery_drone_list') and uav_id in task_data.recovery_drone_list:
-                task_data.recovery_drone_list.remove(uav_id)
+    #     # 从回收车辆的任务数据中移除
+    #     if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
+    #         task_data = vehicle_task_data[recovery_vehicle][recovery_node]
+    #         if hasattr(task_data, 'recovery_drone_list') and uav_id in task_data.recovery_drone_list:
+    #             task_data.recovery_drone_list.remove(uav_id)
         
-        return vehicle_task_data
+    #     return vehicle_task_data
 
-    def update_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
-        """
-        向vehicle_task_data中添加指定的任务分配
-        """
-        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+    # def update_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
+    #     """
+    #     向vehicle_task_data中添加指定的任务分配
+    #     """
+    #     uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
         
-        # 向发射车辆的任务数据中添加
-        if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
-            task_data = vehicle_task_data[launch_vehicle][launch_node]
-            if hasattr(task_data, 'launch_drone_list'):
-                if uav_id not in task_data.launch_drone_list:
-                    task_data.launch_drone_list.append(uav_id)
+    #     # 向发射车辆的任务数据中添加
+    #     if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
+    #         task_data = vehicle_task_data[launch_vehicle][launch_node]
+    #         if hasattr(task_data, 'launch_drone_list'):
+    #             if uav_id not in task_data.launch_drone_list:
+    #                 task_data.launch_drone_list.append(uav_id)
         
-        # 向回收车辆的任务数据中添加
-        if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
-            task_data = vehicle_task_data[recovery_vehicle][recovery_node]
-            if hasattr(task_data, 'recovery_drone_list'):
-                if uav_id not in task_data.recovery_drone_list:
-                    task_data.recovery_drone_list.append(uav_id)
+    #     # 向回收车辆的任务数据中添加
+    #     if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
+    #         task_data = vehicle_task_data[recovery_vehicle][recovery_node]
+    #         if hasattr(task_data, 'recovery_drone_list'):
+    #             if uav_id not in task_data.recovery_drone_list:
+    #                 task_data.recovery_drone_list.append(uav_id)
         
-        return vehicle_task_data
+    #     return vehicle_task_data
 
     def _create_snapshot(self, state):
         """创建状态快照 - 只在必要时进行深拷贝"""
@@ -1672,3 +1699,130 @@ class FastALNS:
                     best = (drone_id, l_n, customer, r_n, launch_vehicle_id, recovery_vehicle_id)
                     best_cost = cost
             return best, best_cost
+
+
+def find_chain_tasks(assignment, customer_plan, vehicle_routes, vehicle_task_data):
+    """
+    通过链式找到这个无人机后续的所有服务任务，跟踪无人机任务链直到返回原始发射车辆
+    
+    Args:
+        assignment: 被删除的任务 (drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle)
+        customer_plan: 当前客户计划
+        vehicle_routes: 车辆路线
+        vehicle_task_data: 车辆任务数据
+    
+    Returns:
+        list: 需要删除的任务列表 [(customer, assignment), ...]
+    """
+    drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle = assignment
+    need_to_remove_tasks = []
+    
+    # 如果发射车辆和回收车辆相同，则无需删除后续任务
+    if launch_vehicle == recovery_vehicle:
+        print(f"无人机 {drone_id} 任务为同车任务，无需删除后续任务")
+        return need_to_remove_tasks
+    
+    print(f"无人机 {drone_id} 任务为异车任务，开始查找后续任务链")
+    print(f"原始发射车辆: {launch_vehicle}, 当前回收车辆: {recovery_vehicle}")
+    
+    # 使用递归函数跟踪无人机任务链
+    def track_drone_chain(current_vehicle, current_node_index, original_launch_vehicle, visited_vehicles=None):
+        """
+        递归跟踪无人机任务链
+        
+        Args:
+            current_vehicle: 当前车辆ID
+            current_node_index: 当前节点在路线中的索引
+            original_launch_vehicle: 原始发射车辆ID
+            visited_vehicles: 已访问的车辆集合（防止循环）
+        """
+        if visited_vehicles is None:
+            visited_vehicles = set()
+        
+        # 防止无限循环
+        if current_vehicle in visited_vehicles:
+            print(f"检测到循环，停止跟踪车辆 {current_vehicle}")
+            return
+        
+        visited_vehicles.add(current_vehicle)
+        
+        # 获取当前车辆路线
+        if current_vehicle - 1 >= len(vehicle_routes):
+            print(f"车辆 {current_vehicle} 索引超出范围")
+            return
+        
+        current_route = vehicle_routes[current_vehicle - 1]
+        
+        # 从当前节点开始遍历后续节点
+        for i in range(current_node_index + 1, len(current_route)):
+            node = current_route[i]
+            
+            # 检查该节点是否有该无人机的发射任务
+            if (node in vehicle_task_data[current_vehicle] and 
+                hasattr(vehicle_task_data[current_vehicle][node], 'launch_drone_list') and 
+                drone_id in vehicle_task_data[current_vehicle][node].launch_drone_list):
+                
+                print(f"在车辆 {current_vehicle} 的节点 {node} 发现无人机 {drone_id} 的发射任务")
+                
+                # 查找该发射任务对应的客户点
+                for customer_id, customer_assignment in customer_plan.items():
+                    cust_drone_id, cust_launch_node, cust_customer, cust_recovery_node, cust_launch_vehicle, cust_recovery_vehicle = customer_assignment
+                    
+                    # 如果找到匹配的无人机和发射节点
+                    if (cust_drone_id == drone_id and cust_launch_node == node and 
+                        cust_launch_vehicle == current_vehicle):
+                        
+                        print(f"找到需要删除的客户任务: 客户点 {customer_id}, 从车辆 {current_vehicle} 发射到车辆 {cust_recovery_vehicle}")
+                        need_to_remove_tasks.append((customer_id, customer_assignment))
+                        
+                        # 如果回收车辆是原始发射车辆，则停止删除后续任务
+                        if cust_recovery_vehicle == original_launch_vehicle:
+                            print(f"客户点 {customer_id} 的回收车辆 {cust_recovery_vehicle} 是原始发射车辆，停止删除后续任务")
+                            continue
+                        
+                        # 如果回收车辆不是原始发射车辆，继续跟踪
+                        if cust_launch_vehicle != cust_recovery_vehicle:
+                            print(f"客户点 {customer_id} 的回收车辆 {cust_recovery_vehicle} 不是原始发射车辆，继续跟踪")
+                            
+                            # 找到回收节点在回收车辆路线中的位置
+                            if cust_recovery_vehicle - 1 < len(vehicle_routes):
+                                recovery_route = vehicle_routes[cust_recovery_vehicle - 1]
+                                recovery_node_index = recovery_route.index(cust_recovery_node) if cust_recovery_node in recovery_route else -1
+                                
+                                if recovery_node_index != -1:
+                                    # 递归跟踪回收车辆的任务链
+                                    track_drone_chain(cust_recovery_vehicle, recovery_node_index, original_launch_vehicle, visited_vehicles.copy())
+                                else:
+                                    print(f"回收节点 {cust_recovery_node} 不在回收车辆 {cust_recovery_vehicle} 的路线中")
+                        break
+    
+    # 开始跟踪任务链
+    # 找到回收节点在回收车辆路线中的位置
+    recovery_vehicle_index = recovery_vehicle - 1
+    if recovery_vehicle_index >= len(vehicle_routes):
+        print(f"回收车辆 {recovery_vehicle} 索引超出范围")
+        return need_to_remove_tasks
+    
+    recovery_route = vehicle_routes[recovery_vehicle_index]
+    recovery_node_index = recovery_route.index(recovery_node) if recovery_node in recovery_route else -1
+    
+    if recovery_node_index == -1:
+        print(f"回收节点 {recovery_node} 不在回收车辆 {recovery_vehicle} 的路线中")
+        return need_to_remove_tasks
+    
+    # 从回收节点开始跟踪任务链
+    track_drone_chain(recovery_vehicle, recovery_node_index, launch_vehicle)
+    
+    # 去重（避免重复删除）
+    unique_tasks = []
+    seen_customers = set()
+    for customer_id, assignment in need_to_remove_tasks:
+        if customer_id not in seen_customers:
+            unique_tasks.append((customer_id, assignment))
+            seen_customers.add(customer_id)
+    
+    print(f"无人机 {drone_id} 的链式删除任务总数: {len(unique_tasks)}")
+    for customer_id, _ in unique_tasks:
+        print(f"  - 客户点 {customer_id}")
+    
+    return unique_tasks
