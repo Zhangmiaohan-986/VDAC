@@ -398,6 +398,8 @@ class IncrementalALNS:
         self.max_iterations = max_iterations
         self.max_runtime = max_runtime
         self.rng = rnd.default_rng(42)
+        self.dis_k = 10  # 修改距离客户点最近的vtp节点集合
+        self.cluster_vtp_dict = self.cluster_vtp_for_customers(k=self.dis_k)
 
     def repair_greedy_insertion(self, state):
         """
@@ -628,7 +630,7 @@ class IncrementalALNS:
         """
         # best_scheme: (drone_id, launch_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id)
         _, _, customer, _, launch_vehicle_id, recovery_vehicle_id = best_scheme
-        customer_vtp_dict = self.cluster_vtp_for_customers(k=20)  # 取较大k，后面筛选
+        customer_vtp_dict = self.cluster_vtp_for_customers()  # 取较大k，后面筛选
         near_vtp_candidates = customer_vtp_dict.get(customer, [])
 
         # 发射车辆
@@ -699,8 +701,24 @@ class IncrementalALNS:
         return repaired_state
 
     def get_all_insert_position(self, vehicle_route, vehicle_task_data, customer, vehicle_arrive_time):
+        """
+        获取所有可行的插入位置，通过cluster_vtp_dict限制解空间以提高效率
+        
+        Args:
+            vehicle_route: 车辆路线
+            vehicle_task_data: 车辆任务数据
+            customer: 客户点ID
+            vehicle_arrive_time: 车辆到达时间
+            
+        Returns:
+            dict: {drone_id: [(launch_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id), ...]}
+        """
         all_insert_position = {drone_id: [] for drone_id in self.V}
-
+        
+        # 获取该客户点的最近VTP节点集合
+        customer_vtp_candidates = self.cluster_vtp_dict.get(customer, [])
+        print(f"客户点 {customer} 的VTP候选节点: {customer_vtp_candidates[:5]}...")  # 只显示前5个
+        
         for drone_id in self.V:
             for launch_vehicle_idx, route in enumerate(vehicle_route):
                 launch_vehicle_id = launch_vehicle_idx + 1
@@ -712,6 +730,12 @@ class IncrementalALNS:
                     if drone_id not in vehicle_task_data[launch_vehicle_id][launch_node].drone_list:
                         i += 1
                         continue
+                    
+                    # 检查发射节点是否在客户点的VTP候选集合中
+                    if launch_node not in customer_vtp_candidates:
+                        i += 1
+                        continue
+                    
                     # 找连续片段
                     j = i + 1
                     while j < n - 1:
@@ -732,17 +756,27 @@ class IncrementalALNS:
                         if drone_id not in vehicle_task_data[launch_vehicle_id][node].drone_list and \
                         drone_id in vehicle_task_data[launch_vehicle_id][node].launch_drone_list:
                             end = j + 1  # 包含发射点
+                    
+                    # 同车插入：检查回收节点是否在VTP候选集合中
                     for k in range(i + 1, end):
                         recovery_node = route[k]
-                        all_insert_position[drone_id].append(
-                            (launch_node, customer, recovery_node, launch_vehicle_id, launch_vehicle_id)
-                        )
+                        # 检查回收节点是否在客户点的VTP候选集合中
+                        if recovery_node in customer_vtp_candidates:
+                            all_insert_position[drone_id].append(
+                                (launch_node, customer, recovery_node, launch_vehicle_id, launch_vehicle_id)
+                            )
                     i = j
-                # 跨车查找（同前）
+                
+                # 跨车查找：检查发射节点是否在VTP候选集合中
                 for i in range(1, n - 1):
                     launch_node = route[i]
                     if drone_id not in vehicle_task_data[launch_vehicle_id][launch_node].drone_list:
                         continue
+                    
+                    # 检查发射节点是否在客户点的VTP候选集合中
+                    if launch_node not in customer_vtp_candidates:
+                        continue
+                    
                     launch_time = vehicle_arrive_time[launch_vehicle_id][launch_node]
                     for recovery_vehicle_idx, other_route in enumerate(vehicle_route):
                         recovery_vehicle_id = recovery_vehicle_idx + 1
@@ -751,6 +785,11 @@ class IncrementalALNS:
                         for recovery_node in other_route[1:-1]:
                             if drone_id not in vehicle_task_data[recovery_vehicle_id][recovery_node].drone_list:
                                 continue
+                            
+                            # 检查回收节点是否在客户点的VTP候选集合中
+                            if recovery_node not in customer_vtp_candidates:
+                                continue
+                            
                             # 新增：排除发射点和回收点完全相同的情况
                             if launch_vehicle_id == recovery_vehicle_id and launch_node == recovery_node:
                                 continue  # 跨车时也不允许同节点
@@ -775,6 +814,16 @@ class IncrementalALNS:
                                 all_insert_position[drone_id].append(
                                     (launch_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id)
                                 )
+        
+        # 统计每个无人机的可行插入位置数量
+        total_positions = 0
+        for drone_id in self.V:
+            positions_count = len(all_insert_position[drone_id])
+            total_positions += positions_count
+            if positions_count > 0:
+                print(f"无人机 {drone_id} 有 {positions_count} 个可行插入位置")
+        
+        print(f"客户点 {customer} 总共有 {total_positions} 个可行插入位置")
         return all_insert_position
     # 计算不同发射回收点的成本状况
     def calculate_multiopt_cost(self, repair_state, best_scheme):
@@ -901,7 +950,6 @@ class IncrementalALNS:
         y_best.append(best_objective)
         start_time = time.time()
         iteration = 0
-        cluster_vtp_dict = self.cluster_vtp_for_customers()
         # 3. 轮盘赌对象 - 使用简化的轮盘赌实现
         # 4. 模拟退火 - 使用简化的模拟退火实现
         temperature = 1000.0
@@ -1296,7 +1344,7 @@ class IncrementalALNS:
         new_state.total_cost = new_state.objective()
         return new_state
     
-    def cluster_vtp_for_customers(self, k=8):
+    def cluster_vtp_for_customers(self, k):
         """
         为每个客户点分配k个最近的VTP节点，按距离升序排列。
         返回: dict，key为客户点id，value为VTP节点list（按距离升序）
