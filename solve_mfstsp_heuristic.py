@@ -227,7 +227,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		best_solution, best_objective, statistics = solve_with_fast_alns(
 		initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, 
-		max_iterations=1000, max_runtime=30, use_incremental=True
+		max_iterations=50, max_runtime=30, use_incremental=True
 		)
 		
 		print(f"ALNS求解结果 - 总成本: {best_objective}")
