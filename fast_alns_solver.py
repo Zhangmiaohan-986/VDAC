@@ -1039,10 +1039,10 @@ class IncrementalALNS:
         for drone_id in self.V:
             positions_count = len(all_insert_position[drone_id])
             total_positions += positions_count
-            if positions_count > 0:
-                print(f"无人机 {drone_id} 有 {positions_count} 个可行插入位置")
+            # if positions_count > 0:
+                # print(f"无人机 {drone_id} 有 {positions_count} 个可行插入位置")
         
-        print(f"客户点 {customer} 总共有 {total_positions} 个可行插入位置")
+        # print(f"客户点 {customer} 总共有 {total_positions} 个可行插入位置")
         return all_insert_position
     # 计算不同发射回收点的成本状况
     def calculate_multiopt_cost(self, repair_state, best_scheme):
@@ -1181,80 +1181,80 @@ class IncrementalALNS:
         # 5. 主循环
         # while iteration < self.max_iterations and (time.time() - start_time) < self.max_runtime:
         while iteration < self.max_iterations:
-            try:
-                # 选择算子 - 使用简化的轮盘赌
-                destroy_idx = self._roulette_wheel_select(destroy_weights)
-                repair_idx = self._roulette_wheel_select(repair_weights)
-                destroy_op = destroy_operators[destroy_idx]
-                repair_op = repair_operators[repair_idx]
+            # try:
+            # 选择算子 - 使用简化的轮盘赌
+            destroy_idx = self._roulette_wheel_select(destroy_weights)
+            repair_idx = self._roulette_wheel_select(repair_weights)
+            destroy_op = destroy_operators[destroy_idx]
+            repair_op = repair_operators[repair_idx]
 
-                # 记录当前解
-                prev_state = current_state.fast_copy()
-                prev_objective = current_objective
+            # 记录当前解
+            prev_state = current_state.fast_copy()
+            prev_objective = current_objective
+        
+            # 破坏阶段
+            print(f"迭代 {iteration}: 使用破坏算子 {destroy_op.__name__}")
+            destroyed_state = destroy_op(current_state)
             
-                # 破坏阶段
-                print(f"迭代 {iteration}: 使用破坏算子 {destroy_op.__name__}")
-                destroyed_state = destroy_op(current_state)
-                
-                # 检查破坏后的状态是否有效
-                if not destroyed_state.customer_plan:
-                    print("破坏后没有客户点，跳过此次迭代")
-                    iteration += 1
-                    continue
-                
-                # 修复阶段
-                print(f"迭代 {iteration}: 使用修复算子 {repair_op.__name__}")
-                repaired_state, insert_plan = repair_op(destroyed_state)
-                
-                # 检查修复后的状态是否有效
-                if not repaired_state.customer_plan:
-                    print("修复后没有客户点，跳过此次迭代")
-                    iteration += 1
-                    continue
+            # 检查破坏后的状态是否有效
+            if not destroyed_state.customer_plan:
+                print("破坏后没有客户点，跳过此次迭代")
+                iteration += 1
+                continue
+            
+            # 修复阶段
+            print(f"迭代 {iteration}: 使用修复算子 {repair_op.__name__}")
+            repaired_state, insert_plan = repair_op(destroyed_state)
+            
+            # 检查修复后的状态是否有效
+            if not repaired_state.customer_plan:
+                print("修复后没有客户点，跳过此次迭代")
+                iteration += 1
+                continue
 
-                # 计算新目标值
-                new_objective = repaired_state.objective()
-                print(f"迭代 {iteration}: 当前成本 {current_objective:.2f} -> 新成本 {new_objective:.2f}")
+            # 计算新目标值
+            new_objective = repaired_state.objective()
+            print(f"迭代 {iteration}: 当前成本 {current_objective:.2f} -> 新成本 {new_objective:.2f}")
 
-                # 模拟退火判断是否接受
-                accept = self._simulated_annealing_accept(current_objective, new_objective, temperature)
+            # 模拟退火判断是否接受
+            accept = self._simulated_annealing_accept(current_objective, new_objective, temperature)
+            
+            if accept:
+                current_state = repaired_state.fast_copy()
+                current_objective = new_objective
+                # 算子奖励
+                destroy_weights[destroy_idx] += 1
+                repair_weights[repair_idx] += 1
+                print(f"迭代 {iteration}: 接受新解")
                 
-                if accept:
-                    current_state = repaired_state.fast_copy()
-                    current_objective = new_objective
-                    # 算子奖励
-                    destroy_weights[destroy_idx] += 1
-                    repair_weights[repair_idx] += 1
-                    print(f"迭代 {iteration}: 接受新解")
-                    
-                    # 更新最优解
-                    if new_objective < best_objective:
-                        best_state = repaired_state.fast_copy()
-                        best_objective = new_objective
-                        print(f"迭代 {iteration}: 发现更优解，成本: {best_objective:.2f}")
-                        y_best.append(best_objective)
-                else:
-                    # 不接受，回滚
-                    current_state = prev_state
-                    current_objective = prev_objective
-                    # 算子惩罚
-                    destroy_weights[destroy_idx] *= 0.95
-                    repair_weights[repair_idx] *= 0.95
-                    print(f"迭代 {iteration}: 拒绝新解，回滚")
-
-                # 温度衰减
-                temperature *= cooling_rate
-                y_cost.append(current_objective)
-                # 记录日志
-                if iteration % 10 == 0:  # 更频繁的日志输出用于调试
-                    elapsed_time = time.time() - start_time
-                    print(f"迭代 {iteration}, 当前成本: {current_objective:.2f}, 最优成本: {best_objective:.2f}, 温度: {temperature:.2f}, 运行时间: {elapsed_time:.2f}秒")
-
-            except Exception as e:
-                print(f"迭代 {iteration} 发生错误: {e}")
-                # 发生错误时回滚到之前的状态
+                # 更新最优解
+                if new_objective < best_objective:
+                    best_state = repaired_state.fast_copy()
+                    best_objective = new_objective
+                    print(f"迭代 {iteration}: 发现更优解，成本: {best_objective:.2f}")
+                    y_best.append(best_objective)
+            else:
+                # 不接受，回滚
                 current_state = prev_state
                 current_objective = prev_objective
+                # 算子惩罚
+                destroy_weights[destroy_idx] *= 0.95
+                repair_weights[repair_idx] *= 0.95
+                print(f"迭代 {iteration}: 拒绝新解，回滚")
+
+            # 温度衰减
+            temperature *= cooling_rate
+            y_cost.append(current_objective)
+            # 记录日志
+            if iteration % 10 == 0:  # 更频繁的日志输出用于调试
+                elapsed_time = time.time() - start_time
+                print(f"迭代 {iteration}, 当前成本: {current_objective:.2f}, 最优成本: {best_objective:.2f}, 温度: {temperature:.2f}, 运行时间: {elapsed_time:.2f}秒")
+
+            # except Exception as e:
+            #     print(f"迭代 {iteration} 发生错误: {e}")
+            #     # 发生错误时回滚到之前的状态
+            #     current_state = prev_state
+            #     current_objective = prev_objective
 
             iteration += 1
 
@@ -1652,48 +1652,6 @@ class IncrementalALNS:
             map_customer_vtp_dict[cid] = [self.node[vtp_id].map_key for vtp_id in sorted_vtps]
 
         return customer_vtp_dict, map_customer_vtp_dict
-
-    # def remove_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
-    #     """
-    #     从vehicle_task_data中移除指定的任务分配
-    #     """
-    #     uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
-        
-    #     # 从发射车辆的任务数据中移除
-    #     if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
-    #         task_data = vehicle_task_data[launch_vehicle][launch_node]
-    #         if hasattr(task_data, 'launch_drone_list') and uav_id in task_data.launch_drone_list:
-    #             task_data.launch_drone_list.remove(uav_id)
-        
-    #     # 从回收车辆的任务数据中移除
-    #     if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
-    #         task_data = vehicle_task_data[recovery_vehicle][recovery_node]
-    #         if hasattr(task_data, 'recovery_drone_list') and uav_id in task_data.recovery_drone_list:
-    #             task_data.recovery_drone_list.remove(uav_id)
-        
-    #     return vehicle_task_data
-
-    # def update_vehicle_task(self, vehicle_task_data, assignment, vehicle_routes):
-    #     """
-    #     向vehicle_task_data中添加指定的任务分配
-    #     """
-    #     uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
-        
-    #     # 向发射车辆的任务数据中添加
-    #     if launch_vehicle in vehicle_task_data and launch_node in vehicle_task_data[launch_vehicle]:
-    #         task_data = vehicle_task_data[launch_vehicle][launch_node]
-    #         if hasattr(task_data, 'launch_drone_list'):
-    #             if uav_id not in task_data.launch_drone_list:
-    #                 task_data.launch_drone_list.append(uav_id)
-        
-    #     # 向回收车辆的任务数据中添加
-    #     if recovery_vehicle in vehicle_task_data and recovery_node in vehicle_task_data[recovery_vehicle]:
-    #         task_data = vehicle_task_data[recovery_vehicle][recovery_node]
-    #         if hasattr(task_data, 'recovery_drone_list'):
-    #             if uav_id not in task_data.recovery_drone_list:
-    #                 task_data.recovery_drone_list.append(uav_id)
-        
-    #     return vehicle_task_data
 
     def _create_snapshot(self, state):
         """创建状态快照 - 只在必要时进行深拷贝"""
