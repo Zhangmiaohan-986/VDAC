@@ -405,7 +405,7 @@ class IncrementalALNS:
         self.cluster_vtp_dict, self.map_cluster_vtp_dict = self.cluster_vtp_for_customers(k=self.dis_k)
         # 定义算子池，方便后续引用
         # self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal, self.destroy_shaw_removal]
-        self.destroy_operators = [self.destroy_random_removal]
+        self.destroy_operators = [self.destroy_worst_removal]
         self.repair_operators = [self.repair_greedy_insertion]
         # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_k_insertion]
         # --- 1. 定义两层自适应权重体系 ---
@@ -1775,6 +1775,9 @@ class IncrementalALNS:
             # # 检查回收节点是否支持该无人机
             # if drone_id not in vtp_vehicle_task_data[launch_vehicle_id][recovery_node].drone_list:
             #     continue
+            # 不允许同点发射及降落
+            if vtp_node == recovery_node:
+                continue
             # 计算从VTP节点到客户点，再从客户点到回收节点的成本
             cost = self.drone_insert_cost(drone_id, customer, vtp_node, recovery_node)
             if cost is not None and cost < min_cost:
@@ -1800,6 +1803,9 @@ class IncrementalALNS:
                     continue
                 
                 if drone_id in vtp_vehicle_task_data[recovery_vehicle_id][recovery_node].launch_drone_list or drone_id in vtp_vehicle_task_data[recovery_vehicle_id][recovery_node].recovery_drone_list:
+                    continue
+
+                if vtp_node == recovery_node:
                     continue
 
                 # 检查发射车辆路线中的冲突
@@ -1880,6 +1886,9 @@ class IncrementalALNS:
                 # 遍历从最近回收点到VTP节点的所有节点作为发射点
                 for k in range(nearest_recovery_idx, vtp_node_idx + 1):
                     launch_node = route[k]
+                    # 不允许同点发射及降落
+                    if launch_node == vtp_node:
+                        continue
                     
                     # 计算从发射点到客户点，再从客户点到VTP节点的成本
                     cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
@@ -2736,7 +2745,7 @@ class IncrementalALNS:
                         if (launch_node == vtp_node and launch_vehicle == vehicle_id) or \
                            (recovery_node == vtp_node and recovery_vehicle == vehicle_id):
                             customers_to_remove.append(customer)
-                            print(f"找到相关客户点 {customer}: 发射节点{launch_node}(车辆{launch_vehicle}), 回收节点{recovery_node}(车辆{recovery_vehicle})")
+                            # print(f"找到相关客户点 {customer}: 发射节点{launch_node}(车辆{launch_vehicle}), 回收节点{recovery_node}(车辆{recovery_vehicle})")
                     
                     # 处理找到的相关客户点
                     for customer in customers_to_remove:
@@ -2896,101 +2905,258 @@ class IncrementalALNS:
 
     # 最坏节点破坏
     def destroy_worst_removal(self, state, force_vtp_mode = None):
-        """最差客户点移除：删除20%-30%成本最高的客户点任务"""
+        """最差节点移除：基于成本效益比删除最差的VTP节点或客户点任务"""
+        """
+        最差破坏算子，实现了双重模式以适应自适应策略选择框架。
+        它既可以基于成本效益比移除最差的VTP节点以重构路径，也可以移除成本最高的客户以重组任务。
+        Args:
+            state (FastMfstspState): 当前解的状态。
+            force_vtp_mode (bool, optional): 
+                - True:  强制执行VTP破坏模式 (用于"结构性重组"策略)。
+                - False: 强制执行客户破坏模式 (用于"内部精细优化"策略)。
+                - None: (默认) 按预设概率随机选择一种模式 (此模式在当前框架下不会被触发，但保留以备后用)。
+        
+        Returns:
+            FastMfstspState: 被部分破坏后的解的状态。
+        """
+
         # 拷贝当前解
         new_state = state.fast_copy()
-        # new_state.rm_empty_vehicle_route, new_state.empty_nodes_by_vehicle = new_state.update_rm_empty_task()
-        # new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.rm_empty_vehicle_route)
-        # # 获取当前解中的客户点（而不是所有可能的客户点）
+        # 获取当前解中的客户点（而不是所有可能的客户点）
         current_customers = list(new_state.customer_plan.keys())
         if not current_customers:
             print("没有客户点需要移除")
             return new_state
 
         # new_state.vehicle_routes = new_state.rm_empty_vehicle_route  # 更新路径
-        # 1. 计算每个客户点的成本
-        customer_costs = []
-        for customer in current_customers:
-            # 从uav_cost中获取该客户点的成本
-            cost = new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0
-            customer_costs.append((customer, cost))
-
-        # 2. 按成本降序排序
-        customer_costs.sort(key=lambda x: x[1], reverse=True)
-
-        # 3. 选取20%-30%最贵的客户点
-        n = len(customer_costs)
-        num_to_remove = self.rng.integers(
-            max(1, int(n * 0.2)),
-            max(2, int(n * 0.3)) + 1
-        )
-        customers_to_remove = [customer for customer, _ in customer_costs[:num_to_remove]]
-
-        print(f"最差破坏：移除 {len(customers_to_remove)} 个客户点: {customers_to_remove}")
-        destroyed_customers_info = {}
-        # 4. 移除这些客户点及相关无人机任务
-        for customer in customers_to_remove:
-            if customer in new_state.customer_plan:
-                assignment = new_state.customer_plan.pop(customer)
-                uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
-                
-                # 记录被破坏客户节点的详细信息
-                customer_info = [uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle, new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0]
-                # customer_info = tuple(customer_info)
-                destroyed_customers_info[customer] = customer_info
-                
-                # 从无人机分配中移除相关任务
-                if uav_id in new_state.uav_assignments:
-                    new_state.uav_assignments[uav_id] = [
-                        task for task in new_state.uav_assignments[uav_id]
-                        if task[2] != customer_node  # 修正索引：task[2]是customer_node
-                    ]
-                
-                # 更新破坏的无人机空中成本
-                if new_state.uav_cost and customer_node in new_state.uav_cost:
-                    new_state.uav_cost.pop(customer_node, None)
-                # 进一步通过链式找到这个无人机后续的所有服务任务，同车则不变，异车则全部删除对应的后续所有任务，并整理出所有需要删除的任务
-                need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, new_state.vehicle_task_data)
-                
-                # 处理链式删除的任务
-                for chain_customer, chain_assignment in need_to_remove_tasks:
-                    if chain_customer in new_state.customer_plan:
-                        chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
-                        
-                        # 记录被破坏客户节点的详细信息
-                        chain_customer_info = [chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle, new_state.uav_cost.get(chain_customer, 0) if new_state.uav_cost else 0]
-                        destroyed_customers_info[chain_customer] = chain_customer_info
-                        
-                        # 从customer_plan中移除
-                        new_state.customer_plan.pop(chain_customer, None)
-                        
-                        # 从无人机分配中移除相关任务
-                        if chain_uav_id in new_state.uav_assignments:
-                            new_state.uav_assignments[chain_uav_id] = [
-                                task for task in new_state.uav_assignments[chain_uav_id]
-                                if task[2] != chain_customer_node
-                            ]
-                        
-                        # 更新破坏的无人机空中成本
-                        if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
-                            new_state.uav_cost.pop(chain_customer_node, None)
-                        
-                        print(f"链式删除客户点 {chain_customer}")
-
-                # 更新对应的vehicle_task_data
-                vehicle_task_data = new_state.vehicle_task_data
-                vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
-                new_state.vehicle_task_data = vehicle_task_data
-        # 5. 更新空跑节点等状态
-        # new_state.update_rm_empty_task()
-        new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
-        # new_state._total_cost = None  # 重置成本缓存
+        mode = 'vtp' if force_vtp_mode else 'customer'
+        print(f"  > [破坏模式]: 最差破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
+        vehicle_task_data = new_state.vehicle_task_data
         
-        # 将破坏的客户节点信息存储到状态中，供修复阶段使用
-        new_state.destroyed_customers_info = destroyed_customers_info
-        
-        print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
-        print("=== 破坏阶段完成 ===\n")
+        if mode == 'vtp':
+            # 收集所有活跃的VTP节点并计算成本效益比
+            active_vtps_with_cost_ratio = []
+            destroyed_vts_info = {}
+            
+            for vehicle_id, route in enumerate(new_state.vehicle_routes):
+                v_id = vehicle_id + 1
+                for vtp_node in route[1:-1]:
+                    # 计算该VTP节点的任务数和总成本
+                    launch_tasks = 0  # 发射任务数
+                    recovery_tasks = 0  # 回收任务数
+                    total_cost = 0.0  # 总成本
+                    
+                    # 统计发射任务：从该VTP节点出发的无人机任务
+                    for customer, assignment in new_state.customer_plan.items():
+                        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                        if launch_node == vtp_node and launch_vehicle == v_id:
+                            launch_tasks += 1
+                            # 计算从VTP到客户的成本，计算从vtp到客户的成本
+                            launch_node_map = self.node[launch_node].map_key
+                            total_cost += self.uav_travel[uav_id][launch_node_map][customer_node].totalDistance * self.vehicle[uav_id].per_cost
+                    
+                    # 统计回收任务：返回该VTP节点的无人机任务
+                    for customer, assignment in new_state.customer_plan.items():
+                        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                        if recovery_node == vtp_node and recovery_vehicle == v_id:
+                            recovery_tasks += 1
+                            # 计算从客户到VTP的成本（这里使用客户点的成本作为近似）
+                            recovery_node_map = self.node[recovery_node].map_key
+                            total_cost += self.uav_travel[uav_id][customer_node][recovery_node_map].totalDistance * self.vehicle[uav_id].per_cost
+                    
+                    # 计算成本效益比：总成本 / 任务数
+                    total_tasks = launch_tasks + recovery_tasks
+                    if total_tasks > 0:
+                        cost_ratio = total_cost / total_tasks
+                    else:
+                        cost_ratio = 0.0
+                    
+                    active_vtps_with_cost_ratio.append(((v_id, vtp_node), cost_ratio, total_cost, total_tasks))
+            
+            # 按成本效益比降序排序（成本效益比越高，越应该被删除）
+            active_vtps_with_cost_ratio.sort(key=lambda x: x[1], reverse=True)
+            
+            # 选择要删除的VTP节点数量
+            num_to_remove = self.vtp_destroy_quantity['worst']
+            num_to_remove = min(num_to_remove, len(active_vtps_with_cost_ratio))
+            
+            # 选择最差的VTP节点
+            vtps_to_destroy = [item[0] for item in active_vtps_with_cost_ratio[:num_to_remove]]
+            
+            # print(f"最差VTP破坏：选择移除 {len(vtps_to_destroy)} 个VTP节点")
+            # for (v_id, vtp_node), cost_ratio, total_cost, total_tasks in active_vtps_with_cost_ratio[:num_to_remove]:
+            #     print(f"  VTP节点 {vtp_node}(车辆{v_id}): 成本效益比={cost_ratio:.2f}, 总成本={total_cost:.2f}, 任务数={total_tasks}")
+            
+            # 开始执行vtp节点任务的破坏策略
+            destroyed_customers_info = {}  # 用于存储被破坏的客户节点信息
+            
+            for vehicle_id, vtp_node in vtps_to_destroy:
+                vtp_tasks = []
+                if vtp_node in new_state.rm_empty_vehicle_route[vehicle_id-1]:
+                    new_state.rm_empty_vehicle_route[vehicle_id-1].remove(vtp_node)
+                    destroyed_vts_info[(vehicle_id-1, vtp_node)] = True # 均统一为索引形式
+                    # print(f"破坏VTP节点: 车辆{vehicle_id}的节点{vtp_node}")
+                    
+                    # 整理该破坏节点所涉及到的所有客户节点任务
+                    # 从customer_plan中查找发射或者回收节点与删除的vtp_node保持一致同时车辆id一样的任务
+                    customers_to_remove = []
+                    
+                    for customer, assignment in list(new_state.customer_plan.items()):
+                        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                        
+                        # 检查发射节点或回收节点是否与破坏的vtp_node一致，且车辆ID相同
+                        if (launch_node == vtp_node and launch_vehicle == vehicle_id) or \
+                           (recovery_node == vtp_node and recovery_vehicle == vehicle_id):
+                            customers_to_remove.append(customer)
+                            # print(f"找到相关客户点 {customer}: 发射节点{launch_node}(车辆{launch_vehicle}), 回收节点{recovery_node}(车辆{recovery_vehicle})")
+                    
+                    # 处理找到的相关客户点
+                    for customer in customers_to_remove:
+                        # 检查是否已经被链式删除过，避免重复删除
+                        if customer in new_state.customer_plan:
+                            assignment = new_state.customer_plan.pop(customer)
+                            uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                            
+                            # 记录被破坏客户节点的详细信息
+                            customer_info = [uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle, new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0]
+                            destroyed_customers_info[customer] = customer_info
+                            
+                            # 从无人机分配中移除相关任务
+                            if uav_id in new_state.uav_assignments:
+                                new_state.uav_assignments[uav_id] = [
+                                    task for task in new_state.uav_assignments[uav_id]
+                                    if task[2] != customer_node  # task[2]是customer_node
+                                ]
+                            
+                            # 更新破坏的无人机空中成本
+                            if new_state.uav_cost and customer_node in new_state.uav_cost:
+                                new_state.uav_cost.pop(customer_node, None)
+            
+                            # 更新对应的vehicle_task_data
+                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
+            
+                            # 通过链式找到这个无人机后续的所有服务任务
+                            need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, new_state.vehicle_task_data)
+            
+                            # 处理链式删除的任务
+                            for chain_customer, chain_assignment in need_to_remove_tasks:
+                                # 检查是否已经被删除过，避免重复删除
+                                if chain_customer in new_state.customer_plan:
+                                    chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
+                                    
+                                    # 记录被破坏客户节点的详细信息
+                                    chain_customer_info = [chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle, new_state.uav_cost.get(chain_customer, 0) if new_state.uav_cost else 0]
+                                    destroyed_customers_info[chain_customer] = chain_customer_info
+                                    
+                                    # 从customer_plan中移除
+                                    new_state.customer_plan.pop(chain_customer, None)
+                                    
+                                    # 从无人机分配中移除相关任务
+                                    if chain_uav_id in new_state.uav_assignments:
+                                        new_state.uav_assignments[chain_uav_id] = [
+                                            task for task in new_state.uav_assignments[chain_uav_id]
+                                            if task[2] != chain_customer_node
+                                        ]
+                                    
+                                    # 更新破坏的无人机空中成本
+                                    if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
+                                        new_state.uav_cost.pop(chain_customer_node, None)
+                                    
+                                    print(f"VTP链式删除客户点 {chain_customer}")
+                                    vehicle_task_data = remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
+            
+            # 更新状态
+            new_state.destroyed_vts_info = destroyed_vts_info
+            new_state.destroyed_customers_info = destroyed_customers_info
+            new_state.vehicle_task_data = vehicle_task_data
+            # 更新空跑节点等状态
+            new_state.vehicle_routes = [route.copy() for route in new_state.rm_empty_vehicle_route]  # vtp节点被破坏后重更新
+            new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
+            print(f"破坏后剩余VTP节点: {sum(len(route) - 2 for route in new_state.vehicle_routes)}")  # 减去起点和终点
+            print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
+            print("=== VTP破坏阶段完成 ===\n")
+        else:
+            # 开始执行客户点层面的破坏策略
+            # 1. 计算每个客户点的成本
+            customer_costs = []
+            for customer in current_customers:
+                # 从uav_cost中获取该客户点的成本
+                cost = new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0
+                customer_costs.append((customer, cost))
+
+            # 2. 按成本降序排序
+            customer_costs.sort(key=lambda x: x[1], reverse=True)
+
+            # 3. 选取20%-30%最贵的客户点
+            n = len(customer_costs)
+            num_to_remove = self.rng.integers(
+                max(1, int(n * 0.2)),
+                max(2, int(n * 0.3)) + 1
+            )
+            customers_to_remove = [customer for customer, _ in customer_costs[:num_to_remove]]
+
+            print(f"最差客户破坏：移除 {len(customers_to_remove)} 个客户点: {customers_to_remove}")
+            destroyed_customers_info = {}
+            
+            # 4. 移除这些客户点及相关无人机任务
+            for customer in customers_to_remove:
+                if customer in new_state.customer_plan:
+                    assignment = new_state.customer_plan.pop(customer)
+                    uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                    
+                    # 记录被破坏客户节点的详细信息
+                    customer_info = [uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle, new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0]
+                    destroyed_customers_info[customer] = customer_info
+                    
+                    # 从无人机分配中移除相关任务
+                    if uav_id in new_state.uav_assignments:
+                        new_state.uav_assignments[uav_id] = [
+                            task for task in new_state.uav_assignments[uav_id]
+                            if task[2] != customer_node  # 修正索引：task[2]是customer_node
+                        ]
+                    
+                    # 更新破坏的无人机空中成本
+                    if new_state.uav_cost and customer_node in new_state.uav_cost:
+                        new_state.uav_cost.pop(customer_node, None)
+                    # 删除对应的状态任务
+                    vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
+                    # 进一步通过链式找到这个无人机后续的所有服务任务，同车则不变，异车则全部删除对应的后续所有任务，并整理出所有需要删除的任务
+                    need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, new_state.vehicle_task_data)
+                    
+                    # 处理链式删除的任务
+                    for chain_customer, chain_assignment in need_to_remove_tasks:
+                        if chain_customer in new_state.customer_plan:
+                            chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
+                            
+                            # 记录被破坏客户节点的详细信息
+                            chain_customer_info = [chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle, new_state.uav_cost.get(chain_customer, 0) if new_state.uav_cost else 0]
+                            destroyed_customers_info[chain_customer] = chain_customer_info
+                            
+                            # 从customer_plan中移除
+                            new_state.customer_plan.pop(chain_customer, None)
+                            
+                            # 从无人机分配中移除相关任务
+                            if chain_uav_id in new_state.uav_assignments:
+                                new_state.uav_assignments[chain_uav_id] = [
+                                    task for task in new_state.uav_assignments[chain_uav_id]
+                                    if task[2] != chain_customer_node
+                                ]
+                            
+                            # 更新破坏的无人机空中成本
+                            if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
+                                new_state.uav_cost.pop(chain_customer_node, None)
+                            
+                            print(f"链式删除客户点 {chain_customer}")
+                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
+
+            # 5. 更新空跑节点等状态
+            new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
+            
+            # 将破坏的客户节点信息存储到状态中，供修复阶段使用
+            new_state.destroyed_customers_info = destroyed_customers_info
+            new_state.vehicle_task_data = vehicle_task_data
+            print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
+            print("=== 破坏阶段完成 ===\n")
         return new_state
 
     def destroy_shaw_removal(self, state, force_vtp_mode = None):
