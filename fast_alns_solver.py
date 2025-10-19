@@ -20,7 +20,7 @@ from main import find_keys_and_indices
 from mfstsp_heuristic_1_partition import *
 from mfstsp_heuristic_2_asgn_uavs import *
 from mfstsp_heuristic_3_timing import *
-
+from task_data import deep_remove_vehicle_task
 from local_search import *
 from rm_node_sort_node import rm_empty_node
 from task_data import *
@@ -2739,40 +2739,40 @@ class IncrementalALNS:
             prev_objective = current_objective
             if chosen_strategy == 'structural':
                 # **策略一：结构性重组** (强制VTP破坏 + 带双重衰减奖励的修复)
-                print(f"DEBUG: 准备调用destroy_op，prev_state.customer_plan包含 {len(prev_state.customer_plan)} 个客户")
-                print(f"DEBUG: prev_state.customer_plan keys: {list(prev_state.customer_plan.keys())}")
-                try:
-                    destroyed_state = destroy_op(prev_state, force_vtp_mode=True)
-                    print(f"DEBUG: destroy_op调用成功，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
-                    print(f"DEBUG: destroyed_state.destroyed_customers_info包含 {len(destroyed_state.destroyed_customers_info)} 个被破坏的客户")
-                except Exception as e:
-                    print(f"DEBUG: destroy_op调用失败: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # 如果destroy_op失败，创建一个空的destroyed_state
-                    destroyed_state = prev_state.fast_copy()
-                    destroyed_state.destroyed_customers_info = {}
-                    destroyed_state.destroyed_vts_info = {}
+                # print(f"DEBUG: 准备调用destroy_op，prev_state.customer_plan包含 {len(prev_state.customer_plan)} 个客户")
+                # print(f"DEBUG: prev_state.customer_plan keys: {list(prev_state.customer_plan.keys())}")
+                # try:
+                destroyed_state = destroy_op(prev_state, force_vtp_mode=True)
+                    # print(f"DEBUG: destroy_op调用成功，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
+                    # print(f"DEBUG: destroyed_state.destroyed_customers_info包含 {len(destroyed_state.destroyed_customers_info)} 个被破坏的客户")
+                # except Exception as e:
+                    # print(f"DEBUG: destroy_op调用失败: {e}")
+                    # import traceback
+                    # traceback.print_exc()
+                    # # 如果destroy_op失败，创建一个空的destroyed_state
+                    # destroyed_state = prev_state.fast_copy()
+                    # destroyed_state.destroyed_customers_info = {}
+                    # destroyed_state.destroyed_vts_info = {}
                 
                 # 计算本轮迭代的战略奖励基准值
                 strategic_bonus = base_flexibility_bonus * (temperature / initial_temperature)
                 num_destroyed = len(destroyed_state.destroyed_customers_info)
                 
-                # 在调用repair_op前添加调试信息
-                print(f"DEBUG: 调用repair_op前，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
-                print(f"DEBUG: 调用repair_op前，节点72是否在customer_plan中: {72 in destroyed_state.customer_plan}")
-                if 72 in destroyed_state.customer_plan:
-                    print(f"DEBUG: 调用repair_op前，节点72的值: {destroyed_state.customer_plan[72]}")
+                # # 在调用repair_op前添加调试信息
+                # print(f"DEBUG: 调用repair_op前，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
+                # print(f"DEBUG: 调用repair_op前，节点72是否在customer_plan中: {72 in destroyed_state.customer_plan}")
+                # if 72 in destroyed_state.customer_plan:
+                #     print(f"DEBUG: 调用repair_op前，节点72的值: {destroyed_state.customer_plan[72]}")
                 
                 repaired_state, _ = repair_op(destroyed_state, strategic_bonus, num_destroyed, force_vtp_mode=True)
                 
                 # 在调用repair_op后添加调试信息
-                print(f"DEBUG: 调用repair_op后，repaired_state.customer_plan包含 {len(repaired_state.customer_plan)} 个客户")
-                print(f"DEBUG: 调用repair_op后，节点72是否在customer_plan中: {72 in repaired_state.customer_plan}")
-                if 72 in repaired_state.customer_plan:
-                    print(f"DEBUG: 调用repair_op后，节点72的值: {repaired_state.customer_plan[72]}")
-                    if repaired_state.customer_plan[72] == []:
-                        print("DEBUG: 警告！节点72的值为空列表！")
+                # print(f"DEBUG: 调用repair_op后，repaired_state.customer_plan包含 {len(repaired_state.customer_plan)} 个客户")
+                # print(f"DEBUG: 调用repair_op后，节点72是否在customer_plan中: {72 in repaired_state.customer_plan}")
+                # if 72 in repaired_state.customer_plan:
+                #     print(f"DEBUG: 调用repair_op后，节点72的值: {repaired_state.customer_plan[72]}")
+                #     if repaired_state.customer_plan[72] == []:
+                #         print("DEBUG: 警告！节点72的值为空列表！")
                 
             else: # chosen_strategy == 'internal'
                 # **策略二：内部精细优化** (强制客户破坏 + 无奖励的修复)
@@ -3187,9 +3187,9 @@ class IncrementalALNS:
                             # 更新破坏的无人机空中成本
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
-                            
+                            from task_data import deep_remove_vehicle_task
                             # print(f"链式删除客户点 {chain_customer}")
-                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
+                            vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
 
                     # 更新对应的vehicle_task_data
                     # vehicle_task_data = new_state.vehicle_task_data
@@ -3502,9 +3502,9 @@ class IncrementalALNS:
                             # 更新破坏的无人机空中成本
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
-                            
+                            from task_data import deep_remove_vehicle_task
                             print(f"链式删除客户点 {chain_customer}")
-                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
+                            vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
 
             # 5. 更新空跑节点等状态
             new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
