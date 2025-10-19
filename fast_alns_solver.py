@@ -27,7 +27,7 @@ from task_data import *
 import main
 import endurance_calculator
 import distance_functions
-
+from visualization_best import visualize_plan
 import random
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
@@ -246,10 +246,16 @@ class FastMfstspState:
         global_reservation_table_copy = copy.copy(self.global_reservation_table)
         
         # 创建新的状态对象
+        # 关键修复：确保customer_plan始终是普通字典，不是defaultdict
+        if isinstance(self.customer_plan, defaultdict):
+            customer_plan_copy = dict(self.customer_plan)
+        else:
+            customer_plan_copy = self.customer_plan.copy()
+            
         new_state = FastMfstspState(
             vehicle_routes=self.vehicle_routes.copy(),
             uav_assignments={k: v.copy() for k, v in self.uav_assignments.items()},
-            customer_plan=self.customer_plan.copy(),
+            customer_plan=customer_plan_copy,
             vehicle_task_data=vehicle_task_data_copy,
             global_reservation_table=global_reservation_table_copy,
             total_cost=self._total_cost,
@@ -341,6 +347,12 @@ class FastMfstspState:
             new_state.final_total_cost = self.final_total_cost
         else:
             new_state.final_total_cost = None
+            
+        # 修复：添加缺失的destroyed_vts_info属性复制
+        if hasattr(self, 'destroyed_vts_info'):
+            new_state.destroyed_vts_info = self.destroyed_vts_info.copy() if self.destroyed_vts_info else {}
+        else:
+            new_state.destroyed_vts_info = {}
         
         return new_state
 
@@ -485,8 +497,26 @@ class IncrementalALNS:
         贪婪插入修复算子：将被移除的客户点按成本最小原则重新插入，记录所有插入方案。
         返回修复后的状态和所有破坏节点的最优插入方案列表。
         """
-        # repaired_state = state.fast_copy()
-        repaired_state = state
+        # 添加调试信息
+        print(f"DEBUG: repair_greedy_insertion开始，state.customer_plan类型: {type(state.customer_plan)}")
+        print(f"DEBUG: repair_greedy_insertion开始，state.customer_plan的ID: {id(state.customer_plan)}")
+        print(f"DEBUG: repair_greedy_insertion开始，节点72是否在customer_plan中: {72 in state.customer_plan}")
+        if 72 in state.customer_plan:
+            print(f"DEBUG: repair_greedy_insertion开始，节点72的值: {state.customer_plan[72]}")
+        
+        # 关键修复：必须创建状态副本，避免修改原始状态
+        repaired_state = state.fast_copy()  # 修复：创建真正的副本
+        # repaired_state = state  # 这里不复制会导致destroyed_state被意外修改！
+        
+        print(f"DEBUG: repaired_state.customer_plan的ID: {id(repaired_state.customer_plan)}")
+        print(f"DEBUG: state和repaired_state是否指向同一个对象: {repaired_state is state}")
+        print(f"DEBUG: customer_plan是否指向同一个对象: {repaired_state.customer_plan is state.customer_plan}")
+        print(f"DEBUG: repaired_state.customer_plan类型: {type(repaired_state.customer_plan)}")
+        
+        # 额外安全检查：确保repaired_state.customer_plan不是defaultdict
+        if isinstance(repaired_state.customer_plan, defaultdict):
+            print("DEBUG: 警告！repaired_state.customer_plan仍然是defaultdict，强制转换为普通字典")
+            repaired_state.customer_plan = dict(repaired_state.customer_plan)
         # destroy_node = list(set(self.A_c) - set(state.customer_plan.keys()))
         destroy_node = list(state.destroyed_customers_info.keys())  # 总结出了所有的待插入的破坏节点
         insert_plan = []  # 记录所有破坏节点的最优插入方案
@@ -647,9 +677,9 @@ class IncrementalALNS:
                         temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
                         
                         # 3. 检查时间约束
-                        is_time_feasible = is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time)
+                        time_feasible = is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time)
                         
-                        if not is_time_feasible:
+                        if not time_feasible:
                             # 时间约束不满足，尝试下一个候选方案
                             print(f"VTP扩展方案时间约束不满足，尝试下一个候选方案")
                             continue
@@ -930,6 +960,15 @@ class IncrementalALNS:
         # 更新修复完成后的成本
         repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
         # print(f"贪婪修复完成：成功插入 {len(insert_plan)} 个客户点")
+        
+        # 添加调试信息
+        print(f"DEBUG: repair_greedy_insertion结束，repaired_state.customer_plan类型: {type(repaired_state.customer_plan)}")
+        print(f"DEBUG: repair_greedy_insertion结束，节点72是否在customer_plan中: {72 in repaired_state.customer_plan}")
+        if 72 in repaired_state.customer_plan:
+            print(f"DEBUG: repair_greedy_insertion结束，节点72的值: {repaired_state.customer_plan[72]}")
+            if repaired_state.customer_plan[72] == []:
+                print("DEBUG: 警告！repair_greedy_insertion结束时节点72的值为空列表！")
+        
         return repaired_state, insert_plan
 
     def get_near_node_list(self, best_scheme, k, vehicle_route):
@@ -2637,8 +2676,15 @@ class IncrementalALNS:
         
         start_time = time.time()
         # 基础奖励值设置为无人机平均成本
+        print(f"DEBUG: 计算base_flexibility_bonus前，current_state.uav_cost包含 {len(current_state.uav_cost)} 个客户")
+        print(f"DEBUG: 计算base_flexibility_bonus前，节点72是否在uav_cost中: {72 in current_state.uav_cost}")
+        if 72 in current_state.uav_cost:
+            print(f"DEBUG: 计算base_flexibility_bonus前，节点72的uav_cost值: {current_state.uav_cost[72]}")
+        
         init_uav_cost = list(current_state.uav_cost.values())
         base_flexibility_bonus = sum(init_uav_cost) / len(init_uav_cost)
+        
+        print(f"DEBUG: 计算base_flexibility_bonus后，base_flexibility_bonus = {base_flexibility_bonus}")
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
         temperature = 500.0
@@ -2663,8 +2709,8 @@ class IncrementalALNS:
             # strategy_names = ['structural']
             strategy_w = np.array(list(self.strategy_weights.values()))
             # 使用轮盘赌选择一个策略 ('structural' 或 'internal')
-            # chosen_strategy = self.rng.choice(strategy_names, p=strategy_w / np.sum(strategy_w))
-            chosen_strategy = 'structural'
+            chosen_strategy = self.rng.choice(strategy_names, p=strategy_w / np.sum(strategy_w))
+            # chosen_strategy = 'structural'
 
             # 2.1.2 [第二层决策]: 根据选定的策略，选择具体的破坏和修复算子
             # 获取当前策略专属的算子权重档案
@@ -2693,12 +2739,40 @@ class IncrementalALNS:
             prev_objective = current_objective
             if chosen_strategy == 'structural':
                 # **策略一：结构性重组** (强制VTP破坏 + 带双重衰减奖励的修复)
-                destroyed_state = destroy_op(prev_state, force_vtp_mode=True)
+                print(f"DEBUG: 准备调用destroy_op，prev_state.customer_plan包含 {len(prev_state.customer_plan)} 个客户")
+                print(f"DEBUG: prev_state.customer_plan keys: {list(prev_state.customer_plan.keys())}")
+                try:
+                    destroyed_state = destroy_op(prev_state, force_vtp_mode=True)
+                    print(f"DEBUG: destroy_op调用成功，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
+                    print(f"DEBUG: destroyed_state.destroyed_customers_info包含 {len(destroyed_state.destroyed_customers_info)} 个被破坏的客户")
+                except Exception as e:
+                    print(f"DEBUG: destroy_op调用失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # 如果destroy_op失败，创建一个空的destroyed_state
+                    destroyed_state = prev_state.fast_copy()
+                    destroyed_state.destroyed_customers_info = {}
+                    destroyed_state.destroyed_vts_info = {}
                 
                 # 计算本轮迭代的战略奖励基准值
                 strategic_bonus = base_flexibility_bonus * (temperature / initial_temperature)
                 num_destroyed = len(destroyed_state.destroyed_customers_info)
+                
+                # 在调用repair_op前添加调试信息
+                print(f"DEBUG: 调用repair_op前，destroyed_state.customer_plan包含 {len(destroyed_state.customer_plan)} 个客户")
+                print(f"DEBUG: 调用repair_op前，节点72是否在customer_plan中: {72 in destroyed_state.customer_plan}")
+                if 72 in destroyed_state.customer_plan:
+                    print(f"DEBUG: 调用repair_op前，节点72的值: {destroyed_state.customer_plan[72]}")
+                
                 repaired_state, _ = repair_op(destroyed_state, strategic_bonus, num_destroyed, force_vtp_mode=True)
+                
+                # 在调用repair_op后添加调试信息
+                print(f"DEBUG: 调用repair_op后，repaired_state.customer_plan包含 {len(repaired_state.customer_plan)} 个客户")
+                print(f"DEBUG: 调用repair_op后，节点72是否在customer_plan中: {72 in repaired_state.customer_plan}")
+                if 72 in repaired_state.customer_plan:
+                    print(f"DEBUG: 调用repair_op后，节点72的值: {repaired_state.customer_plan[72]}")
+                    if repaired_state.customer_plan[72] == []:
+                        print("DEBUG: 警告！节点72的值为空列表！")
                 
             else: # chosen_strategy == 'internal'
                 # **策略二：内部精细优化** (强制客户破坏 + 无奖励的修复)
@@ -2868,7 +2942,7 @@ class IncrementalALNS:
             max_attempts = len(active_vtps) * 2  # 最大尝试次数，避免无限循环
             attempt_count = 0
             
-            # 创建候选节点池的副本，用于随机选择
+            # 创建候选节点池的副本，用于随机选择,避免指向同一对象
             candidate_vtps = active_vtps.copy()
             
             while destroyed_vtp_count < num_to_remove and candidate_vtps and attempt_count < max_attempts:
@@ -2934,7 +3008,7 @@ class IncrementalALNS:
                 # 6. 约束满足，执行实际删除操作
                 print(f"成功破坏VTP节点: 车辆{vehicle_id}的节点{vtp_node} (进度: {destroyed_vtp_count + 1}/{num_to_remove})")
                 
-                # 从车辆路线中移除VTP节点
+                # 从车辆路线中移除VTP节点,测试通过，开始正常处理任务
                 new_state.rm_empty_vehicle_route[vehicle_id-1].remove(vtp_node)
                 destroyed_vts_info[(vehicle_id, vtp_node)] = True
                 destroyed_vtp_count += 1  # 增加破坏计数
@@ -3000,6 +3074,40 @@ class IncrementalALNS:
                 print(f"VTP破坏策略部分完成：目标 {num_to_remove} 个，实际破坏 {destroyed_vtp_count} 个VTP节点，共删除 {len(destroyed_customers_info)} 个客户点")
             else:
                 print(f"VTP破坏策略失败：目标 {num_to_remove} 个，实际破坏 {destroyed_vtp_count} 个VTP节点，共删除 {len(destroyed_customers_info)} 个客户点")
+                print(f"警告：VTP破坏失败，destroyed_customers_info为空: {destroyed_customers_info}")
+                # 如果VTP破坏完全失败，回退到客户破坏模式
+                print("VTP破坏失败，回退到客户破坏模式...")
+                
+                # 回退到客户破坏模式：随机选择一个客户进行破坏
+                if current_customers:
+                    fallback_customer = self.rng.choice(current_customers)
+                    if fallback_customer in new_state.customer_plan:
+                        assignment = new_state.customer_plan.pop(fallback_customer)
+                        uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle = assignment
+                        
+                        # 记录被破坏客户节点的详细信息
+                        customer_info = [uav_id, launch_node, customer_node, recovery_node, launch_vehicle, recovery_vehicle, new_state.uav_cost.get(fallback_customer, 0) if new_state.uav_cost else 0]
+                        destroyed_customers_info[fallback_customer] = customer_info
+                        
+                        # 从无人机分配中移除相关任务
+                        if uav_id in new_state.uav_assignments:
+                            new_state.uav_assignments[uav_id] = [
+                                task for task in new_state.uav_assignments[uav_id]
+                                if task[2] != customer_node
+                            ]
+                        
+                        # 更新破坏的无人机空中成本
+                        if new_state.uav_cost and customer_node in new_state.uav_cost:
+                            new_state.uav_cost.pop(customer_node, None)
+                        
+                        # 更新vehicle_task_data
+                        vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
+                        
+                        print(f"回退破坏：成功破坏客户点 {fallback_customer}")
+                    else:
+                        print("回退破坏：无法找到可破坏的客户点")
+                else:
+                    print("回退破坏：没有可用的客户点")
             
             # 更新对应的vehicle_task_data
             # vehicle_task_data = new_state.vehicle_task_data
@@ -3172,12 +3280,6 @@ class IncrementalALNS:
             # 按成本效益比降序排序（成本效益比越高，越应该被删除）
             active_vtps_with_cost_ratio.sort(key=lambda x: x[1], reverse=True)
             
-            # 统计没有任务的VTP节点数量
-            # empty_vtps = [item for item in active_vtps_with_cost_ratio if item[3] == 0]  # total_tasks == 0
-            # print(f"VTP最差破坏策略：发现 {len(empty_vtps)} 个没有发射和回收任务的VTP节点")
-            # if empty_vtps:
-            #     empty_vtp_info = [f"车辆{item[0][0]}节点{item[0][1]}" for item in empty_vtps]
-            #     print(f"  无任务VTP节点: {', '.join(empty_vtp_info)}")
             # 选择要删除的VTP节点数量
             num_to_remove = self.vtp_destroy_quantity['worst']
             num_to_remove = min(num_to_remove, len(active_vtps_with_cost_ratio))
@@ -3190,15 +3292,7 @@ class IncrementalALNS:
             for i, (vehicle_id, vtp_node) in enumerate(vtps_to_destroy):
                 vtp_info = active_vtps_with_cost_ratio[i]
                 cost_ratio, total_cost, total_tasks = vtp_info[1], vtp_info[2], vtp_info[3]
-                # if total_tasks == 0:
-                #     print(f"  {i+1}. 车辆{vehicle_id}节点{vtp_node} (无任务，优先破坏)")
-                # else:
-                #     print(f"  {i+1}. 车辆{vehicle_id}节点{vtp_node} (成本效益比: {cost_ratio:.2f}, 任务数: {total_tasks})")
-            
-            # print(f"最差VTP破坏：选择移除 {len(vtps_to_destroy)} 个VTP节点")
-            # for (v_id, vtp_node), cost_ratio, total_cost, total_tasks in active_vtps_with_cost_ratio[:num_to_remove]:
-            #     print(f"  VTP节点 {vtp_node}(车辆{v_id}): 成本效益比={cost_ratio:.2f}, 总成本={total_cost:.2f}, 任务数={total_tasks}")
-            
+
             # 开始执行vtp节点任务的破坏策略
             destroyed_customers_info = {}  # 用于存储被破坏的客户节点信息
             destroyed_vtp_count = 0  # 实际破坏的VTP节点数量
@@ -3299,9 +3393,31 @@ class IncrementalALNS:
                         
                         # 处理链式删除的任务
                         from task_data import deep_remove_vehicle_task
-                        vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, assignment, new_state.vehicle_routes)
-                        
-                        print(f"VTP链式删除客户点 {customer}")
+                        need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, vehicle_task_data)
+                        for chain_customer, chain_assignment in need_to_remove_tasks:
+                            if chain_customer in new_state.customer_plan:
+                                chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
+                                
+                                # 记录被破坏客户节点的详细信息
+                                chain_customer_info = [chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle, new_state.uav_cost.get(chain_customer, 0) if new_state.uav_cost else 0]
+                                destroyed_customers_info[chain_customer] = chain_customer_info
+                                
+                                # 从customer_plan中移除
+                                new_state.customer_plan.pop(chain_customer, None)
+                                
+                                # 从无人机分配中移除相关任务
+                                if chain_uav_id in new_state.uav_assignments:
+                                    new_state.uav_assignments[chain_uav_id] = [
+                                        task for task in new_state.uav_assignments[chain_uav_id]
+                                        if task[2] != chain_customer_node
+                                    ]
+                                
+                                # 更新破坏的无人机空中成本
+                                if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
+                                    new_state.uav_cost.pop(chain_customer_node, None)
+                                
+                                print(f"VTP链式删除客户点 {chain_customer}")
+                                vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes)
             
             print(f"VTP最差破坏策略完成：成功破坏 {destroyed_vtp_count}/{len(vtps_to_destroy)} 个VTP节点")
             
