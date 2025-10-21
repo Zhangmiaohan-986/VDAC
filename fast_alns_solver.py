@@ -1344,19 +1344,28 @@ class IncrementalALNS:
                                     'type': 'heuristic_swap'
                                 }
                         except Exception as e:
-                            pass
+                            print(f"客户点 {customer} 启发式交换失败: {e}")
+                            print(f"回退到未被破坏的状态，跳过客户点 {customer}")
+                            # 当启发式交换失败时，跳过当前客户点，继续处理其他客户点
+                            print(f'启发式无法找到最优解方案，目标函数值设置为无穷大返回')
+                            repaired_state.repair_objective = float('inf')
+                            return repaired_state, insert_plan
 
                     # 计算后悔值
                     if len(direct_candidates) >= 1:
                         best_cost = direct_candidates[0]['cost']
-                        second_best_cost = direct_candidates[1]['cost'] if len(direct_candidates) >= 2 else float('inf')
+                        # second_best_cost = direct_candidates[1]['cost'] if len(direct_candidates) >= 2 else float('inf')
+                        second_best_cost = direct_candidates[1]['cost'] if len(direct_candidates) >= 2 else best_cost  # 如果只有一种方案，则后悔值为0
                         regret_value = second_best_cost - best_cost
                         per_customer_info.append({'customer': customer, 'mode': 'direct', 'regret': regret_value, 'best_cost': best_cost})
                     elif customer in swap_buckets:
-                        # 没有直接候选但有交换候选，视为高后悔值以优先考虑
-                        per_customer_info.append({'customer': customer, 'mode': 'heuristic_swap', 'regret': float('inf'), 'best_cost': swap_buckets[customer]['total_cost']})
+                        # 没有直接候选但有交换候选，视为高后悔值以优先考虑,设置后悔值为0，之前为float('inf')
+                        per_customer_info.append({'customer': customer, 'mode': 'heuristic_swap', 'regret': 0, 'best_cost': swap_buckets[customer]['total_cost']})
 
                 if not per_customer_info:
+                    print(f'没有可行的插入方案，目标函数值设置为无穷大返回')
+                    repaired_state.repair_objective = float('inf')
+                    return repaired_state, insert_plan
                     break
 
                 # 选择后悔值最大（若相同选择best_cost较小者）
@@ -1392,13 +1401,14 @@ class IncrementalALNS:
                         swap = swap_buckets.get(customer)
                         if swap is None:
                             continue
+                        # 启发式交换模式
+                        customer = swap['customer']
                         best_orig_y = swap['orig_scheme']
                         best_new_y = swap['new_scheme']
                         best_orig_cost = swap['orig_cost']
                         best_new_cost = swap['new_cost']
                         best_orig_y_cijkdu_plan = swap['orig_plan']
                         best_new_y_cijkdu_plan = swap['new_plan']
-
                         orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
                         new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
 
