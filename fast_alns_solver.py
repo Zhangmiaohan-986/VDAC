@@ -505,7 +505,7 @@ class IncrementalALNS:
         
         # 关键修复：必须创建状态副本，避免修改原始状态
         repaired_state = state.fast_copy()  # 修复：创建真正的副本
-        
+        repaired_state.repair_objective = 0
         destroy_node = list(state.destroyed_customers_info.keys())  # 总结出了所有的待插入的破坏节点
         insert_plan = []  # 记录所有破坏节点的最优插入方案
 
@@ -893,7 +893,9 @@ class IncrementalALNS:
                             print(f"客户点 {customer} 启发式交换失败: {e}")
                             print(f"回退到未被破坏的状态，跳过客户点 {customer}")
                             # 当启发式交换失败时，跳过当前客户点，继续处理其他客户点
-                            continue
+                            print(f'启发式无法找到最优解方案，目标函数值设置为无穷大返回')
+                            repaired_state.repair_objective = float('inf')
+                            return repaired_state, insert_plan
                             # else:
                                 # print(f'在贪婪算法的intel策略中，产生了无效的启发式优化算法方案，也将其方案添加到候选方案中')
                                 # heuristic_swap_candidates.append({
@@ -1124,6 +1126,7 @@ class IncrementalALNS:
         并在其候选方案中按成本从低到高依次尝试，直到满足约束。
         """
         repaired_state = state.fast_copy()
+        repaired_state.repair_objective = 0
         destroy_node = list(state.destroyed_customers_info.keys())
         insert_plan = []
 
@@ -3165,7 +3168,9 @@ class IncrementalALNS:
         y_best = []
         y_cost = []
         current_state = initial_state.fast_copy()
-        
+        # 设置对不可行破坏或修复方案的惩罚机制
+        decay_factor = 0.95
+
         # (你对初始解的预处理，这部分完全保留)
         current_state.rm_empty_vehicle_route, current_state.empty_nodes_by_vehicle = current_state.update_rm_empty_task()
         # current_state.rm_empty_vehicle_route = [route[:] for route in current_state.vehicle_routes]
@@ -3238,6 +3243,7 @@ class IncrementalALNS:
             # 步骤 2.2: 执行策略绑定的破坏与修复
             # =================================================================
             prev_state = current_state.fast_copy()
+            print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
             prev_objective = current_objective
             if chosen_strategy == 'structural':
                 # **策略一：结构性重组** (强制VTP破坏 + 带双重衰减奖励的修复)
@@ -3248,6 +3254,26 @@ class IncrementalALNS:
                 num_destroyed = len(destroyed_state.destroyed_customers_info)
         
                 repaired_state, _ = repair_op(destroyed_state, strategic_bonus, num_destroyed, force_vtp_mode=True)
+                if repaired_state.repair_objective == float('inf'):
+                    print("  > 修复后方案为空，跳过此次迭代。")
+                    iteration += 1
+                    # 将所使用的算子进行降分处理，暂缓选入的方案
+                    # 惩罚破坏算子
+                    self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] *= decay_factor
+                    # 防止权重过低
+                    if self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] < 0.1: 
+                        self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] = 0.1
+                    # 惩罚修复算子
+                    self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] *= decay_factor
+                    if self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] < 0.1:
+                        self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = 0.1
+                    # 温度仍然需要衰减
+                    temperature *= cooling_rate
+                    # 记录失败的成本（可以记录前一个状态的成本）
+                    y_cost.append(current_objective) 
+                    # 将修复后的状态重置为初始状态
+                    repaired_state.repair_objective = 0
+                    continue
                 
             else: # chosen_strategy == 'internal'
                 # **策略二：内部精细优化** (强制客户破坏 + 无奖励的修复)
@@ -3256,6 +3282,28 @@ class IncrementalALNS:
                 num_destroyed = len(destroyed_state.destroyed_customers_info)
                 # 传入零奖励，关闭“战略投资”模式
                 repaired_state, _ = repair_op(destroyed_state, strategic_bonus=0, num_destroyed=num_destroyed, force_vtp_mode=False)
+                if repaired_state.repair_objective == float('inf'):
+                    print("  > 修复后方案为空，跳过此次迭代。")
+                    iteration += 1
+                    # 将所使用的算子进行降分处理，暂缓选入的方案
+                    # 惩罚破坏算子
+                    self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] *= decay_factor
+                    # 防止权重过低
+                    if self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] < 0.1: 
+                        self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] = 0.1
+
+                    # 惩罚修复算子
+                    self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] *= decay_factor
+                    if self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] < 0.1:
+                        self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = 0.1
+
+                    # 温度仍然需要衰减
+                    temperature *= cooling_rate
+                    # 记录失败的成本（可以记录前一个状态的成本）
+                    y_cost.append(current_objective) 
+                    # 将修复后的状态重置为初始状态
+                    repaired_state.repair_objective = 0
+                    continue
 
             if not destroyed_state.customer_plan or not repaired_state.customer_plan:
                 print("  > 破坏或修复后方案为空，跳过此次迭代。")
