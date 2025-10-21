@@ -95,7 +95,8 @@ def visualize_plan(best_state, output_path="VDAC/map_test/collaborative_delivery
         y_coords = [c[1] for c in route_coords]
         
         color = vehicle_colors[i % len(vehicle_colors)]
-        linestyle = vehicle_linestyles[i % len(vehicle_linestyles)]
+        # 固定为实线以满足“车辆路线用实线表示”的需求
+        linestyle = '-'
         
         # 新增：为车辆路线添加顺序箭头（标识行驶方向）
         for j in range(len(route_coords) - 1):
@@ -261,20 +262,20 @@ def visualize_plan(best_state, output_path="VDAC/map_test/collaborative_delivery
 
     # 10. 调整布局并保存
     plt.show()
-    # output_dir = os.path.dirname(output_path)
-    # if output_dir and not os.path.exists(output_dir):
-    #     os.makedirs(output_dir)
-    #     print(f"已创建目录: {output_dir}")
+    output_dir = os.path.dirname(output_path)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"已创建目录: {output_dir}")
 
-    # plt.subplots_adjust(right=0.7) 
+    plt.subplots_adjust(right=0.7) 
     
-    # try:
-    #     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    #     print(f"可视化图形已成功保存到: {output_path}")
-    # except Exception as e:
-    #     print(f"保存文件时出错: {e}")
+    try:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"可视化图形已成功保存到: {output_path}")
+    except Exception as e:
+        print(f"保存文件时出错: {e}")
         
-    # plt.close(fig)
+    plt.close(fig)
 
 # --- 模拟数据和示例用法 ---
 # (这部分是为了让代码可以独立运行并展示效果)
