@@ -478,7 +478,10 @@ def remove_vehicle_task(vehicle_task_data, y, vehicle_route):
                 if drone_id not in vehicle_task_data[recv_v_id][node].launch_drone_list:    
                     vehicle_task_data[recv_v_id][node].drone_list.remove(drone_id)
                     vehicle_task_data[recv_v_id][node].drone_list = remove_duplicates(vehicle_task_data[recv_v_id][node].drone_list)
-                continue
+                # continue
+                elif drone_id in vehicle_task_data[recv_v_id][node].launch_drone_list:
+                    vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = recv_v_id
+                    break
             # vehicle_carry_drone_list = vehicle_task_data[recv_v_id][node].drone_list
             if drone_id not in vehicle_task_data[recv_v_id][node].launch_drone_list and drone_id in vehicle_task_data[recv_v_id][node].drone_list:
                 vehicle_task_data[recv_v_id][node].drone_list.remove(drone_id)
@@ -561,18 +564,22 @@ def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route):
             if drone_id not in vehicle_task_data[v_id][node].recovery_drone_list and drone_id not in vehicle_task_data[v_id][node].drone_list:
                 # vehicle_task_data[v_id][node].drone_list.append(drone_id)  # 判断车辆在节点上是否携带其型号无人机
                 vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = None
-            if drone_id not in vehicle_task_data[v_id][node].launch_drone_list and drone_id in vehicle_task_data[v_id][node].drone_list:
+            # if drone_id not in vehicle_task_data[v_id][node].launch_drone_list and drone_id in vehicle_task_data[v_id][node].drone_list:
+            if drone_id not in vehicle_task_data[v_id][node].recovery_drone_list and drone_id in vehicle_task_data[v_id][node].drone_list:
                 vehicle_task_data[v_id][node].drone_list.remove(drone_id)
                 # vehicle_task_data[v_id][node].drone_list = remove_duplicates(vehicle_task_data[v_id][node].drone_list)
                 vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = None
             if drone_id in vehicle_task_data[v_id][node].recovery_drone_list:
                 # vehicle_task_data[v_id][node].recovery_drone_list.remove(drone_id)
                 vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = v_id
+            if drone_id in vehicle_task_data[v_id][node].launch_drone_list:
+                vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = v_id
+                break
                 
         for node_index, node in enumerate(remove_recovery_uav_route):
             if node_index == 0:
                 vehicle_task_data[recv_v_id][node].recovery_drone_list.remove(drone_id)
-                vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = None
+                vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = recv_v_id
                 if drone_id not in vehicle_task_data[recv_v_id][node].launch_drone_list and drone_id in vehicle_task_data[recv_v_id][node].drone_list:
                     vehicle_task_data[recv_v_id][node].drone_list.remove(drone_id)
                     # vehicle_task_data[recv_v_id][node].drone_list = remove_duplicates(vehicle_task_data[recv_v_id][node].drone_list)
