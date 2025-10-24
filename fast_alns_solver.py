@@ -1418,8 +1418,26 @@ class IncrementalALNS:
                             best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = generator.greedy_insert_feasible_plan(
                                 customer, vehicle_route, vehicle_arrive_time, vehicle_task_data, repaired_state.customer_plan
                             )
-                            if best_orig_y is not None and best_new_y is not None:
-                                swap_buckets[customer] = {
+                            orig_scheme = (best_orig_y[0], best_orig_y[1], best_orig_y[2], best_orig_y[3], best_orig_y[4], best_orig_y[5])
+                            new_scheme = (best_new_y[0], best_new_y[1], best_new_y[2], best_new_y[3], best_new_y[4], best_new_y[5])
+                            if best_orig_y[2] == customer:
+                                delete_customer = best_new_y[2]
+                            else:
+                                delete_customer = best_orig_y[2]
+                            # 创建临时状态进行约束检查
+                            temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                            delete_task_plan = temp_customer_plan[delete_customer]
+                            del temp_customer_plan[delete_customer]
+                            temp_customer_plan[best_orig_y[2]] = orig_scheme
+                            temp_customer_plan[best_new_y[2]] = new_scheme
+                            temp_customer_cost = {k: v for k, v in repaired_state.uav_cost.items()}
+                            del temp_customer_cost[delete_customer]
+                            temp_customer_cost[best_orig_y[2]] = best_orig_cost
+                            temp_customer_cost[best_new_y[2]] = best_new_cost
+                            temp_cost = sum(temp_customer_cost.values())
+                            temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                            current_cost = sum(repaired_state.uav_cost.values())
+                            swap_buckets[customer] = {
                                     'customer': customer,
                                     'orig_scheme': best_orig_y,
                                     'new_scheme': best_new_y,
@@ -1430,6 +1448,18 @@ class IncrementalALNS:
                                     'new_plan': best_new_y_cijkdu_plan,
                                     'type': 'heuristic_swap'
                                 }
+                            # if best_orig_y is not None and best_new_y is not None:
+                            #     swap_buckets[customer] = {
+                            #         'customer': customer,
+                            #         'orig_scheme': best_orig_y,
+                            #         'new_scheme': best_new_y,
+                            #         'orig_cost': best_orig_cost,
+                            #         'new_cost': best_new_cost,
+                            #         'total_cost': best_orig_cost + best_new_cost,
+                            #         'orig_plan': best_orig_y_cijkdu_plan,
+                            #         'new_plan': best_new_y_cijkdu_plan,
+                            #         'type': 'heuristic_swap'
+                            #     }
                         except Exception as e:
                             print(f"客户点 {customer} 启发式交换失败: {e}")
                             print(f"回退到未被破坏的状态，跳过客户点 {customer}")
@@ -1503,55 +1533,38 @@ class IncrementalALNS:
                             remove_customer = new_customer
                         else:
                             remove_customer = orig_customer
-
-                        # 解析交换方案
-                        orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
-                        new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
-
-                        # 删除被移除的方案
-                        if remove_customer in repaired_state.customer_plan:
-                            y = repaired_state.customer_plan[remove_customer]
-                            del repaired_state.customer_plan[remove_customer]
-                            if repaired_state.uav_cost and remove_customer in repaired_state.uav_cost:
-                                del repaired_state.uav_cost[remove_customer]
-                            
-                            # 从无人机分配中移除
-                            drone_id_remove, _, _, _, _, _ = y
-                            if drone_id_remove in repaired_state.uav_assignments:
-                                repaired_state.uav_assignments[drone_id_remove] = [
-                                    task for task in repaired_state.uav_assignments[drone_id_remove]
-                                    if task[2] != remove_customer
-                                ]
-                            
-                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, y, vehicle_route)
-                        
-                        # 根据时间优先级选择插入方案
-                        # if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
-                        # 插入新方案
+                        # 创建临时状态进行约束检查
+                        # temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                        # delete_task_plan = temp_customer_plan.customer_plan[orig_customer]
+                        # del temp_customer_plan[remove_customer]
+                        # temp_customer_plan[orig_customer] = best_orig_y
+                        # temp_customer_plan[new_customer] = best_new_y
+                        # temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                        # if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                        #     print(f"启发式交换方案时间约束不满足，尝试下一个候选方案")
+                        #     continue  
+                        # else:
+                        # 更新customer_plan
+                        delete_task_plan = repaired_state.customer_plan[remove_customer]
+                        del repaired_state.customer_plan[remove_customer]
+                        repaired_state.customer_plan[orig_customer] = best_orig_y
                         repaired_state.customer_plan[new_customer] = best_new_y
-                        if repaired_state.uav_cost is None:
-                            repaired_state.uav_cost = {}
-                        repaired_state.uav_cost[new_customer] = best_new_cost
-                        
-                        # 更新无人机分配
-                        if new_drone_id not in repaired_state.uav_assignments:
-                            repaired_state.uav_assignments[new_drone_id] = []
-                        repaired_state.uav_assignments[new_drone_id].append(best_new_y)
-                        
-                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
-                        # final_scheme = best_new_y
-                        # final_cost = best_new_cost
-
-                        repaired_state.customer_plan[remove_customer] = best_orig_y
-                        if repaired_state.uav_cost is None:
-                            repaired_state.uav_cost = {}
-                        repaired_state.uav_cost[remove_customer] = best_orig_cost
+                        # 更新uav_assignments
                         if orig_drone_id not in repaired_state.uav_assignments:
                             repaired_state.uav_assignments[orig_drone_id] = []
                         repaired_state.uav_assignments[orig_drone_id].append(best_orig_y)
-                        # vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
+                        if new_drone_id not in repaired_state.uav_assignments:
+                            repaired_state.uav_assignments[new_drone_id] = []
+                        repaired_state.uav_assignments[new_drone_id].append(best_new_y)
+                        # 更新uav_cost
+                        del repaired_state.uav_cost[delete_customer]
+                        repaired_state.uav_cost[orig_customer] = best_orig_cost
+                        repaired_state.uav_cost[new_customer] = best_new_cost
+                        # 更新vehicle_task_data
+                        vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
                         vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
-
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                        
                         final_scheme = (best_orig_y,best_new_y)
                         final_cost = best_orig_cost + best_new_cost
                         
@@ -1559,6 +1572,8 @@ class IncrementalALNS:
                         insert_plan.append((customer, final_scheme, final_cost))
                         if customer in destroy_node:  # 安全检查，避免重复删除
                             destroy_node.remove(customer)
+                        inserted = True
+                        break
 
         repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
         return repaired_state, insert_plan
