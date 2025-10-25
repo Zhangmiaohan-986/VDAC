@@ -277,7 +277,7 @@ class FastMfstspState:
             customer_plan_copy = self.customer_plan.copy()
             
         new_state = FastMfstspState(
-            vehicle_routes=self.vehicle_routes.copy(),
+            vehicle_routes=[route.copy() for route in self.vehicle_routes],
             uav_assignments={k: v.copy() for k, v in self.uav_assignments.items()},
             customer_plan=customer_plan_copy,
             vehicle_task_data=vehicle_task_data_copy,
@@ -617,7 +617,7 @@ class IncrementalALNS:
                 success = False
 
                 for candidate in candidates_plan:
-                    # customer = candidate['customer']
+                    customer = candidate['customer']
                     # best_scheme = candidate['scheme']
                     # best_cost = candidate['cost']
                     
@@ -678,6 +678,7 @@ class IncrementalALNS:
                         # delete_customer = candidate['customer']
                         orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = orig_scheme
                         new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_scheme
+                        customer = new_customer
                         delete_customer = orig_customer
                         # delete_task_plan = state.customer_plan[orig_customer]
                         # 创建临时状态进行约束检查
@@ -728,6 +729,7 @@ class IncrementalALNS:
                     elif candidate['type'] == 'vtp_expansion':
                         # VTP扩展插入方案 - 采用统一的后续处理方式，并额外更新车辆路线
                         # print(f"尝试使用VTP扩展方案插入客户点 {customer}，成本: {best_cost:.2f}")
+                        customer = candidate['customer']
                         vtp_node = candidate['vtp_node']
                         vtp_insert_index = candidate['vtp_insert_index']
                         vtp_insert_vehicle_id = candidate['vtp_insert_vehicle_id']
@@ -1212,6 +1214,7 @@ class IncrementalALNS:
                         if candidate['type'] == 'traditional':
                             # 约束检查
                             best_scheme = candidate['scheme']
+                            customer = best_scheme[2]
                             best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
                             temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
                             temp_customer_plan[best_scheme[2]] = best_scheme
@@ -1245,6 +1248,7 @@ class IncrementalALNS:
                             temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
                             orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = orig_scheme
                             new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_scheme
+                            customer = new_customer
                             delete_task_plan = temp_customer_plan[orig_customer]
                             delete_customer = orig_customer
                             # 创建临时状态进行约束检查
@@ -1289,6 +1293,7 @@ class IncrementalALNS:
                                 success_any = True
                                 break
                         elif candidate['type'] == 'vtp_expansion':
+                            customer = candidate['customer']
                             vtp_node = candidate['vtp_node']
                             vtp_insert_index = candidate['vtp_insert_index']
                             vtp_insert_vehicle_id = candidate['vtp_insert_vehicle_id']
@@ -3560,6 +3565,13 @@ class IncrementalALNS:
             # =================================================================
             prev_state = current_state.fast_copy()
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
+            
+            # 调试条件：检查vehicle_task_data[2][129].drone_list
+            if hasattr(current_state, 'vehicle_task_data') and 2 in current_state.vehicle_task_data and 129 in current_state.vehicle_task_data[2]:
+                if hasattr(current_state.vehicle_task_data[2][129], 'drone_list'):
+                    if current_state.vehicle_task_data[2][129].drone_list == [10, 9]:
+                        print("调试：找到vehicle_task_data[2][129].drone_list == [10,9]")
+                        # import pdb; pdb.set_trace()
             # prev_objective = current_objective
             if chosen_strategy == 'structural':
                 # **策略一：结构性重组** (强制VTP破坏 + 带双重衰减奖励的修复)
