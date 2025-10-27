@@ -611,7 +611,7 @@ class IncrementalALNS:
                                 'vtp_insert_index': vtp_insert_index,
                                 'original_cost': vtp_cost
                             })
-
+                customer_candidates = [item for item in customer_candidates if item['scheme'] is not None]
                 # 对customer_candidates的cost由小到大排序
                 candidates_plan = sorted(customer_candidates, key=lambda x: x['cost'])
                 
@@ -810,7 +810,9 @@ class IncrementalALNS:
                 # 如果所有候选方案都不满足约束，跳过当前客户点
                 if not success:
                     print(f"客户点 {customer} 的所有候选方案都不满足约束，跳过")
-                    continue
+                    repaired_state.repair_objective = float('inf')
+                    return repaired_state, insert_plan
+                    # continue
                 
                 # 从待插入列表中移除已处理的客户点
                 if customer in destroy_node:
