@@ -325,7 +325,7 @@ class missionControl():
 									self.veh_travel[vehicleID][j][i] = 0
 								else:
 									init_node =  self.node[i].map_index
-									target_node = self.node[j].map_index
+									target_node = self.node[j].map_index 
 									distance = self.ground_matrix[init_node][target_node]
 									self.veh_distance[vehicleID][i][j] = distance
 									self.veh_travel[vehicleID][i][j] = distance / self.vehicle[vehicleID].vehicleSpeed

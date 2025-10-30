@@ -811,6 +811,8 @@ class IncrementalALNS:
                 if not success:
                     print(f"客户点 {customer} 的所有候选方案都不满足约束，跳过")
                     repaired_state.repair_objective = float('inf')
+                    # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                    repaired_state.destroyed_customers_info = {}
                     return repaired_state, insert_plan
                     # continue
                 
@@ -924,6 +926,8 @@ class IncrementalALNS:
                             # 当启发式交换失败时，跳过当前客户点，继续处理其他客户点
                             print(f'启发式无法找到最优解方案，目标函数值设置为无穷大返回')
                             repaired_state.repair_objective = float('inf')
+                            # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                            repaired_state.destroyed_customers_info = {}
                             return repaired_state, insert_plan
                 
                 # 选择最优插入方案
@@ -1056,6 +1060,8 @@ class IncrementalALNS:
             
         # 更新修复完成后的成本
         repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
+        # 清空破坏信息，确保修复后的状态不包含已修复的破坏节点信息
+        repaired_state.destroyed_customers_info = {}
         
         return repaired_state, insert_plan
 
@@ -1352,6 +1358,8 @@ class IncrementalALNS:
                     else:
                         print(f'在regret的修复策略中，客户点{customer}没有可行的插入方案，跳过，插入方案失败')
                         repaired_state.repair_objective = float('inf')
+                        # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                        repaired_state.destroyed_customers_info = {}
                         return repaired_state, insert_plan
 
                 if not success_any:
@@ -1460,6 +1468,8 @@ class IncrementalALNS:
                 if not per_customer_info:
                     print(f'没有可行的插入方案，目标函数值设置为无穷大返回')
                     repaired_state.repair_objective = float('inf')
+                    # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                    repaired_state.destroyed_customers_info = {}
                     return repaired_state, insert_plan
                     # break
 
@@ -2085,6 +2095,9 @@ class IncrementalALNS:
             for drone_id, inert_positions in all_insert_position.items():
                 for inert_position in inert_positions:
                     launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = inert_position
+                    # 如果发射点和回收点相同，则跳过
+                    if launch_node == recovery_node:
+                        continue
                     insert_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
                     if insert_cost < min_cost:
                         min_cost = insert_cost
@@ -3573,12 +3586,24 @@ class IncrementalALNS:
             # =================================================================
             prev_state = current_state.fast_copy()
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
-            
+            if iteration == 58:
+                print(f"调试：找到iteration == 58")
             # 调试条件：检查vehicle_task_data[2][129].drone_list
-            if hasattr(current_state, 'vehicle_task_data') and 2 in current_state.vehicle_task_data and 129 in current_state.vehicle_task_data[2]:
-                if hasattr(current_state.vehicle_task_data[2][129], 'drone_list'):
-                    if current_state.vehicle_task_data[2][129].drone_list == [10, 9]:
-                        print("调试：找到vehicle_task_data[2][129].drone_list == [10,9]")
+            # if hasattr(current_state, 'vehicle_task_data') and 2 in current_state.vehicle_task_data and 129 in current_state.vehicle_task_data[2]:
+                # if hasattr(current_state.vehicle_task_data[2][129], 'drone_list'):
+                # if current_state.customer_plan[89] == [7,138,89,141,1,1]:
+                #     print("调试：找到customer_plan[89] == [7,138,89,141,1,1]")
+            if current_state.customer_plan[94] == (11, 145, 94, 143, 1, 1):
+                print("调试：找到customer_plan[94] == (11, 145, 94, 143, 1, 1)")
+            if current_state.customer_plan[75] == (11, 133, 75, 114, 3, 1):
+                print("调试：找到customer_plan[75] == (11, 133, 75, 114, 3, 1)")
+            if current_state.customer_plan[68] == (11, 145, 68, 143, 1, 1):
+                print("调试：找到customer_plan[68] == (11, 145, 68, 143, 1, 1)")
+            if current_state.customer_plan[73] == (11, 145, 73, 143, 1, 1):
+                print("调试：找到customer_plan[73] == (11, 145, 73, 143, 1, 1)")
+            if current_state.customer_plan[82] == (11, 143, 82, 120, 1, 1):
+                print("调试：找到customer_plan[82] == (11, 143, 82, 120, 1, 1)")
+            
                         # import pdb; pdb.set_trace()
             # prev_objective = current_objective
             if chosen_strategy == 'structural':
@@ -3593,6 +3618,8 @@ class IncrementalALNS:
                 if repaired_state.repair_objective == float('inf'):
                     print("  > 修复后方案为空，跳过此次迭代。")
                     iteration += 1
+                    # 清空破坏信息，确保不会影响下一轮迭代
+                    repaired_state.destroyed_customers_info = {}
                     # 将所使用的算子进行降分处理，暂缓选入的方案
                     # 惩罚破坏算子
                     self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] *= decay_factor
@@ -3621,6 +3648,8 @@ class IncrementalALNS:
                 if repaired_state.repair_objective == float('inf'):
                     print("  > 修复后方案为空，跳过此次迭代。")
                     iteration += 1
+                    # 清空破坏信息，确保不会影响下一轮迭代
+                    repaired_state.destroyed_customers_info = {}
                     # 将所使用的算子进行降分处理，暂缓选入的方案
                     # 惩罚破坏算子
                     self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] *= decay_factor
@@ -3694,6 +3723,8 @@ class IncrementalALNS:
             # 步骤 2.5: 更新状态并进入下一次迭代
             # =================================================================
             if accepted:
+                # 确保接受新解时清空破坏信息，避免传递到下一轮迭代
+                repaired_state.destroyed_customers_info = {}
                 current_state = repaired_state
                 current_objective = new_objective
                 if new_objective < best_objective: # 再次检查以更新最优状态
@@ -3772,6 +3803,8 @@ class IncrementalALNS:
 
         # 拷贝当前解
         new_state = state.fast_copy()
+        # 清空上一轮迭代的破坏信息，确保每次破坏都是全新的
+        new_state.destroyed_customers_info = {}
         # 获取当前解中的客户点（而不是所有可能的客户点）
         current_customers = list(new_state.customer_plan.keys())
         if not current_customers:
@@ -4068,6 +4101,8 @@ class IncrementalALNS:
     # 考虑帕累托的多目标最差节点破坏
     def destroy_comprehensive_removal(self, state, force_vtp_mode = None):
         new_state = state.fast_copy() # 确保在副本上操作
+        # 清空上一轮迭代的破坏信息，确保每次破坏都是全新的
+        new_state.destroyed_customers_info = {}
         current_customers = list(new_state.customer_plan.keys())
         vehicle_task_data = new_state.vehicle_task_data
         mode = 'vtp' if force_vtp_mode else 'customer'
@@ -4658,6 +4693,8 @@ class IncrementalALNS:
     # 考虑负载不均衡的shaw破坏策略
     def destroy_shaw_rebalance_removal(self, state, force_vtp_mode = None):
         new_state = state.fast_copy() # 确保在副本上操作
+        # 清空上一轮迭代的破坏信息，确保每次破坏都是全新的
+        new_state.destroyed_customers_info = {}
         current_customers = list(new_state.customer_plan.keys())
         vehicle_task_data = new_state.vehicle_task_data
         mode = 'vtp' if force_vtp_mode else 'customer'
