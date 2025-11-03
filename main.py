@@ -337,8 +337,6 @@ class missionControl():
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
 		[objVal, assignments, packages, costTruck, costUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground)
 		print('The mFSTSP-VDS Heuristic is Done.  It returned something')
-
-
 		numUAVcust			= 0
 		numTruckCust		= 0		
 		for nodeID in packages:

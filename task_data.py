@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 import copy
 from collections import defaultdict
 
@@ -493,7 +493,7 @@ def remove_vehicle_task(vehicle_task_data, y, vehicle_route):
 
     return vehicle_task_data
 
-def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route):
+def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route, orig_vehicle_id):
     drone_id, vtp_i, customer, vtp_j, v_id, recv_v_id = y
     veh_launch_index = v_id -1
     veh_recovery_index = recv_v_id -1
@@ -580,11 +580,14 @@ def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route):
             if node_index == 0:
                 vehicle_task_data[recv_v_id][node].recovery_drone_list.remove(drone_id)
                 vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = recv_v_id
-                if drone_id not in vehicle_task_data[recv_v_id][node].launch_drone_list and drone_id in vehicle_task_data[recv_v_id][node].drone_list:
+                if orig_vehicle_id == recv_v_id:
+                    vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = recv_v_id # 如果原始车辆是接收车辆，则无人机归属为接收车辆
+                    break                
+                elif orig_vehicle_id != recv_v_id and drone_id not in vehicle_task_data[recv_v_id][node].launch_drone_list and drone_id in vehicle_task_data[recv_v_id][node].drone_list:
                     vehicle_task_data[recv_v_id][node].drone_list.remove(drone_id)
                     # vehicle_task_data[recv_v_id][node].drone_list = remove_duplicates(vehicle_task_data[recv_v_id][node].drone_list)
                     vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = None
-                if drone_id in vehicle_task_data[recv_v_id][node].launch_drone_list:
+                elif drone_id in vehicle_task_data[recv_v_id][node].launch_drone_list:
                     vehicle_task_data[drone_id][node].dict_vehicle[recv_v_id]['drone_belong'] = recv_v_id
                     break
                 # 判断这个节点是否有发射任务,若有发射任务，则回归列表不添加
