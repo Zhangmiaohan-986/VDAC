@@ -407,7 +407,8 @@ class IncrementalALNS:
     
     def __init__(self, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, 
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee,
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
+        ground_node_types, A_c, xeee,
         max_iterations=50, max_runtime=60):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
@@ -434,7 +435,8 @@ class IncrementalALNS:
         self.xeee = xeee
         # self.max_iterations = max_iterations
         self.max_iterations = 500
-
+        self.temperature = 500.0
+        self.initial_temperature = 500.0
         self.max_runtime = max_runtime
         self.rng = rnd.default_rng(42)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
@@ -454,7 +456,7 @@ class IncrementalALNS:
         self.repair_operators = [self.repair_kNN_regret]
         # self.destroy_operators = [self.destroy_random_removal]
         # self.repair_operators = [self.noise_regret_insertion]
-        self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.noise_regret_insertion,self.repair_kNN_regret]
+        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.noise_regret_insertion,self.repair_kNN_regret]
         # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_k_insertion]
         self.params = {
             'k_neighbors': 3,  # 1. 协同邻居数
@@ -1593,7 +1595,7 @@ class IncrementalALNS:
     def repair_kNN_regret(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
             """
             与后悔值修复保持相同框架（含VTP扩展与统一约束检查），但选择策略改为随机选择：
-            对每个待插入客户，计算其候选方案中(次优成本 - 最优成本)作为后悔值，优先插入后悔值最大的客户，随后引入噪音扰动结果
+            对每个待插入客户，计算其候选方案中(次优成本 - 最优成本)作为后悔值，优先插入后悔值最大的客户
             并在其候选方案中按成本从低到高依次尝试，直到满足约束。
             """
             repaired_state = state.fast_copy()
@@ -1609,24 +1611,24 @@ class IncrementalALNS:
             W_base_partner = self.params['W_base_partner']
             k_neighbors = self.params['k_neighbors']
             alpha = self.params['alpha'] # 衰减敏感度
-            tumperature = self.tumperature
-            initial_temperature = self.initial_temperature
+            # tumperature = self.tumperature
+            # initial_temperature = self.initial_temperature
             # 计算本轮迭代的“动态权重因子” (1.0 -> 0.0)
-            W_dynamic_factor = (tumperature / initial_temperature) ** alpha
+            W_dynamic_factor = (self.temperature / self.initial_temperature) ** alpha
             if force_vtp_mode:
                 num_repaired = 0
                 while len(destroy_node) > 0:
                     per_customer_candidates = {}
                     regret_list = []
-                    candidates = []
+                    # candidates = []
                     # 获取所有的VTP节点,包括新的VTP节点以及共享VTP节点，测试在不同的车辆路线上，输出为车辆id，节点id，插入位置
                     all_vtp_nodes = {}
                     candidate_new_vtps = self._get_all_candidate_new_vtps(destroy_node, repaired_state)
                     # K_revest_position = len(candidate_new_vtps)
-                    K_revest_position = 10
+                    K_revest_position = 20
                     candidates = []
                     for vtp_new in candidate_new_vtps:
-                        # 找到插入 vtp_new 的最佳车辆和成本 # best_positions 返回: [(veh_id, insert_idx, veh_delta_cost), ...]
+                        # 找到插入 vtp_new 的最佳车辆和成本 # best_positions 返回: [(veh_id, insert_idx, veh_delta_cost), ...],尝试插入前几个最优的方案，以防止数据维度爆炸
                         best_positions = self._find_k_best_vehicle_for_new_vtp(vtp_new, repaired_state,K_revest_position)  # 输出的车辆id并非索引而是代号 输出的全部的新vtp节点和插入索引
                         if not best_positions: continue
                         # 【核心修改】: 遍历这K个最佳插入位置，评估每一个的潜力
@@ -1635,12 +1637,14 @@ class IncrementalALNS:
                             total_benefit, affected_customers = self._calculate_vtp_benefits(
                                 vtp_new, (veh_id, insert_idx), repaired_state, destroy_node
                             )
-                            for benefit, scheme in affected_customers.items():
+                            for customer, scheme in affected_customers:
+                                cost = scheme[0]
+                                scheme_plan = scheme[1]
                                 candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_new, 'vtp_insert_index': insert_idx, 
-                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme, 'eval_cost': benefit})
+                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
                     # --- 2.2 策略B：评估“共享现有VTP” (Sharing) ---
                     used_vtps_set = {node for route in repaired_state.vehicle_routes for node in route[1:-1]}
-                    K_BEST_POSITIONS = len(used_vtps_set)
+                    K_BEST_POSITIONS = 10
                     for vtp_shared in used_vtps_set:
                         # 【核心修改】: 为这个共享VTP，在所有【尚未】使用它的车辆中，找到K个最佳插入位置
                         best_shared_positions = self._find_k_best_vehicles_for_shared_vtp(vtp_shared, repaired_state, K_BEST_POSITIONS)
@@ -1654,10 +1658,72 @@ class IncrementalALNS:
                             total_benefit, affected_customers = self._calculate_vtp_benefits(
                                 vtp_shared, (veh_id, insert_idx), repaired_state, destroy_node
                             )
-                            for benefit, scheme in affected_customers.items():
-                                candidates.append({'customer': customer, 'type': 'sharing', 'vtp_node': vtp_shared, 'vtp_insert_index': insert_idx, 
-                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme, 'eval_cost': benefit})
+                            for customer, scheme in affected_customers:
+                                cost = scheme[0]
+                                scheme_plan = scheme[1]
+                                candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_new, 'vtp_insert_index': insert_idx, 
+                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
                     # 在此阶段计算调用VTP的传统插入方案
+                    for customer in destroy_node:
+                        # [!] 假设: _regret_evaluate_traditional_insertion
+                        # 返回一个*列表*，包含所有 (L, C, R) 方案
+                        traditional_options_list, is_heuristic_swap = self._regret_evaluate_traditional_insertion(
+                            customer, vehicle_routes, vehicle_task_data, vehicle_arrive_time, repaired_state
+                        )
+                        if is_heuristic_swap:
+                            continue
+                        for trad_opt in traditional_options_list:
+                            candidates.append({
+                                'customer': customer,
+                                'type': 'traditional',
+                                'vtp_node': None, # 传统方案不涉及VTP插入
+                                'vtp_insert_index': None,
+                                'vtp_insert_vehicle_id': None,
+                                'scheme': trad_opt['scheme'],
+                                'eval_cost': trad_opt['eval_cost']
+                            })
+                    if not candidates:
+                        print("kNN-Regret: 没有任何候选方案，修复终止。")
+                        repaired_state._total_cost = float('inf')
+                        return repaired_state, insert_plan
+                    # 对candidates进行排序，按照eval_cost从低到高
+                    candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])
+                    # (A) 转换：将扁平列表 candidates 转换为 "客户中心" 字典
+                    # per_customer_candidates = {C1: [opt1, opt2], C2: [opt3], ...}
+                    per_customer_candidates = {}
+                    for opt in candidates:
+                        # 过滤掉无效成本
+                        if opt.get('eval_cost') is None or math.isinf(opt.get('eval_cost')):
+                            continue
+                        cust = opt['customer']
+                        if cust not in per_customer_candidates:
+                            per_customer_candidates[cust] = []
+                        per_customer_candidates[cust].append(opt)
+                    # (B) 评分：遍历字典，计算 S-Score, P-Score 和 Total-Score
+                    # 获取所有VTP站点的当前状态，用于伙伴分计算
+                    all_vtps = used_vtps_set 
+                    # 遍历每个客户
+                    for customer_id, options_list in per_customer_candidates.items():
+                        # 找到该客户的 k 个邻居，仅用于协同分计算，后面需对备用的options_list进行删选
+                        neighbors = self._find_k_nearest_unassigned(customer_id, k_neighbors, destroy_node)
+                        # 遍历该客户的所有方案
+                        for opt in options_list:
+                            Cost = opt['eval_cost']
+                            S_Score = 0.0
+                            P_Score = 0.0
+                            # 1. 计算协同分 (Synergy Score)
+                            #    只为“VTP拓展”方案计算
+                            if opt['type'] == 'vtp_expansion':
+                                S_Score = self._calculate_synergy_score(
+                                    opt, neighbors, all_vtps, repaired_state, vehicle_task_data,
+                                )
+                            # 2. 计算伙伴分 (Partner Score)
+                            #    所有方案都应计算
+                            P_Score = self._calculate_partner_score(
+                                opt, all_vtps, repaired_state
+                            )
+                            # 3. 应用最终公式 (动态权重)
+                            opt['total_score'] = Cost - (W_base_synergy * S_Score + W_base_partner * P_Score) * W_dynamic_factor
 
 
                     all_vtp_nodes = self.get_all_vtp_nodes(repaired_state)
@@ -1688,9 +1754,9 @@ class IncrementalALNS:
                             S_Score = 0.0
                             P_Score = 0.0
 
-                            # 只有“VTP扩展”方案有资格获得“协同分”
+                            # 只有"VTP扩展"方案有资格获得"协同分"
                             if opt['type'] == 'vtp_expansion':
-                                S_Score = self._calculate_synergy_score(opt, neighbors, all_vtps, repaired_state)
+                                S_Score = self._calculate_synergy_score(opt, neighbors, all_vtps, repaired_state, vehicle_task_data)
                             
                             # 所有方案都应评估其“伙伴分”
                             P_Score = self._calculate_partner_score(opt, all_vtps, repaired_state)
@@ -2155,9 +2221,446 @@ class IncrementalALNS:
         all_insertion_options.sort(key=lambda x: x[2])
         
         # 返回前 K 个
-        # return all_insertion_options[:k]
-        return all_insertion_options[:]
+        return all_insertion_options[:k]
+        # return all_insertion_options[:]
 
+    def _calculate_synergy_score(self, opt, neighbors, all_vtps, state, vehicle_task_data, k_route_nodes=5):
+        """
+        (VTP-Knn-regret 辅助函数)
+        计算协同分 (Synergy Score)
+        对于VTP插入方案，综合考虑被破坏的相邻neighbors的支持作用、距离和VTP节点剩余无人机数量。
+        
+        Args:
+            opt (dict): 操作选项，包含 'customer', 'type', 'vtp_insert_vehicle_id', 'vtp_node', 'scheme' 等
+            neighbors (list): 被破坏的相邻客户ID列表（在destroy_node中，距离当前客户最近的k个）
+            all_vtps (set): 所有VTP节点的集合
+            state (FastMfstspState): 修复后的状态
+            vehicle_task_data (dict): 车辆任务数据，格式为 vehicle_task_data[vehicle_id][node_id]
+            k_route_nodes (int): 考虑路径上周围k个节点（默认5个），因为允许无人机跨车运输
+            
+        Returns:
+            float: 协同分数，值越大表示协同程度越高
+        """
+        synergy_score = 0.0
+        vtp_insert_vehicle_id = opt.get('vtp_insert_vehicle_id')
+        vtp_insert_index = opt.get('vtp_insert_index')
+        vehicle_routes = [route[:] for route in state.vehicle_routes] 
+        try:
+            # 只对VTP扩展方案计算协同分
+            if opt.get('type') != 'vtp_expansion':
+                return 0.0
+            
+            # 1. 获取被操作客户的ID和坐标
+            customer_id = opt.get('customer')
+            if customer_id is None:
+                scheme = opt.get('scheme')
+                if scheme and len(scheme) >= 3:
+                    customer_id = scheme[2]  # scheme[2] 是 customer_node
+            
+            if customer_id is None or customer_id not in self.node:
+                return 0.0
+            
+            customer_node = self.node[customer_id]
+            customer_lat = customer_node.latDeg
+            customer_lon = customer_node.lonDeg
+            customer_alt = customer_node.altMeters
+            
+            # 2. 获取VTP节点信息和坐标
+            vtp_node = opt.get('vtp_node')
+            vtp_insert_vehicle_id = opt.get('vtp_insert_vehicle_id')
+            
+            if vtp_node is None or vtp_insert_vehicle_id is None:
+                return 0.0
+            
+            # 获取VTP节点的坐标
+            if vtp_node not in self.node:
+                return 0.0
+            
+            vtp_node_obj = self.node[vtp_node]
+            vtp_lat = vtp_node_obj.latDeg
+            vtp_lon = vtp_node_obj.lonDeg
+            vtp_alt = vtp_node_obj.altMeters
+            
+            # 3. 获取VTP节点在该车辆上的剩余无人机数量
+            # 注意：VTP节点可能尚未插入到vehicle_task_data中，需要模拟其状态
+            # 如果VTP节点已经存在于vehicle_task_data中，直接获取
+            # 否则，需要根据插入位置的前一个节点来推断无人机数量
+            
+            drone_count = 0
+            temp_vehicle_task_data = deep_copy_vehicle_task_data(vehicle_task_data)
+            # 上一个节点的drone_list信息
+            last_customer_node = vehicle_routes[vtp_insert_vehicle_id - 1][vtp_insert_index - 1]
+            if vtp_insert_index == 1 or last_customer_node == self.DEPOT_nodeID:
+                drone_count = len(self.base_drone_assignment[vtp_insert_vehicle_id])
+            else:
+                drone_count = len(temp_vehicle_task_data[vtp_insert_vehicle_id][last_customer_node].drone_list)
+
+            # 如果无法获取无人机数量，使用默认值（假设有足够的无人机）
+            if drone_count == 0:
+                print('无人机数量获取失败，使用默认值')
+                # # 尝试从车辆的基础无人机分配获取
+                # if vtp_insert_vehicle_id in self.base_drone_assignment:
+                #     drone_count = len(self.base_drone_assignment[vtp_insert_vehicle_id])
+                # else:
+                #     # 如果还是0，给一个默认值（比如所有无人机的数量）
+                #     drone_count = len(self.V) if self.V else 1
+            
+            # 4. 计算新建VTP与路径上周围k个节点的距离（考虑路径成本影响，允许无人机跨车运输）
+            route_proximity_score = 0.0
+            route_node_count = 0
+            if isinstance(state.vehicle_routes, list):
+                route_idx = vtp_insert_vehicle_id - 1
+                if 0 <= route_idx < len(state.vehicle_routes):
+                    target_route = state.vehicle_routes[route_idx]
+                    vtp_insert_idx = opt.get('vtp_insert_index', 0)
+                    
+                    # 获取插入位置周围的k个节点（前后各k/2个，或尽可能多）
+                    # 因为允许无人机跨车运输，需要考虑周围更多节点
+                    start_idx = max(0, vtp_insert_idx - k_route_nodes // 2)
+                    end_idx = min(len(target_route), vtp_insert_idx + k_route_nodes // 2 + 1)
+                    
+                    # 计算VTP节点与路径上周围k个节点的距离
+                    for i in range(start_idx, end_idx):
+                        if i == vtp_insert_idx:
+                            continue  # 跳过插入位置本身（VTP节点会插入在这里）
+                        
+                        route_node_id = target_route[i]
+                        if route_node_id in self.node:
+                            route_node = self.node[route_node_id]
+                            route_node_lat = route_node.latDeg
+                            route_node_lon = route_node.lonDeg
+                            route_node_alt = route_node.altMeters
+                            
+                            lat_diff = vtp_lat - route_node_lat
+                            lon_diff = vtp_lon - route_node_lon
+                            alt_diff = vtp_alt - route_node_alt
+                            route_distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+                            
+                            # 距离越近，路径协同效应越强
+                            # 使用距离的倒数，并考虑节点在路径上的位置权重（越近权重越大）
+                            position_weight = 1.0 / (1.0 + abs(i - vtp_insert_idx))  # 距离插入位置越近，权重越大
+                            route_proximity_score += position_weight / (1.0 + route_distance)
+                            route_node_count += 1
+                    
+                    # 归一化：取平均值
+                    if route_node_count > 0:
+                        route_proximity_score = route_proximity_score / route_node_count
+            
+            # 5. 计算新建VTP与客户节点的距离（VTP到当前客户的协同）
+            customer_proximity_score = 0.0
+            if customer_id in self.node:
+                lat_diff = vtp_lat - customer_lat
+                lon_diff = vtp_lon - customer_lon
+                alt_diff = vtp_alt - customer_alt
+                customer_distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+                # 距离越近，VTP到客户的协同效应越强
+                customer_proximity_score = 1.0 / (1.0 + customer_distance)
+            
+            # 6. 计算新建VTP与所有destroyed_node的距离（考虑VTP对所有被破坏节点的覆盖能力）
+            destroyed_node_score = 0.0
+            destroyed_node_count = 0
+            if hasattr(state, 'destroyed_customers_info') and state.destroyed_customers_info:
+                destroyed_node_list = list(state.destroyed_customers_info.keys())
+                for destroyed_node_id in destroyed_node_list:
+                    if destroyed_node_id == customer_id:
+                        continue  # 跳过当前客户（已经在customer_proximity_score中考虑）
+                    if destroyed_node_id not in self.node:
+                        continue
+                    
+                    destroyed_node = self.node[destroyed_node_id]
+                    destroyed_lat = destroyed_node.latDeg
+                    destroyed_lon = destroyed_node.lonDeg
+                    destroyed_alt = destroyed_node.altMeters
+                    
+                    lat_diff = vtp_lat - destroyed_lat
+                    lon_diff = vtp_lon - destroyed_lon
+                    alt_diff = vtp_alt - destroyed_alt
+                    destroyed_distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+                    
+                    # 距离越近，VTP对被破坏节点的覆盖能力越强
+                    destroyed_node_score += 1.0 / (1.0 + destroyed_distance)
+                    destroyed_node_count += 1
+                
+                # 归一化：取平均值
+                if destroyed_node_count > 0:
+                    destroyed_node_score = destroyed_node_score / destroyed_node_count
+            
+            # 7. 计算新建VTP与其他VTP节点的距离（考虑VTP网络协同，基于时间和距离）
+            # 根据scheme判断VTP是发射点还是回收点，然后找k个时间往后/往前的距离最近的节点打分
+            vtp_network_score = 0.0
+            k_vtp_nodes = 5  # 考虑k个最近的VTP节点
+            
+            # 获取scheme，判断VTP是发射点还是回收点
+            scheme = opt.get('scheme')
+            is_launch_point = False
+            is_recovery_point = False
+            
+            if scheme and len(scheme) >= 4:
+                # scheme格式: (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
+                launch_node = scheme[1] if len(scheme) > 1 else None
+                recovery_node = scheme[3] if len(scheme) > 3 else None
+                
+                if vtp_node == launch_node:
+                    is_launch_point = True
+                    is_vehicle_id = scheme[4]
+                elif vtp_node == recovery_node:
+                    is_recovery_point = True
+                    is_vehicle_id = scheme[5]
+            
+            # 计算当前VTP节点的到达时间
+            # 需要模拟插入VTP后的路线来计算到达时间
+            temp_vehicle_routes = [route[:] for route in state.vehicle_routes]
+            if vtp_insert_index is not None and vtp_insert_vehicle_id is not None:
+                route_idx = vtp_insert_vehicle_id - 1
+                if 0 <= route_idx < len(temp_vehicle_routes):
+                    # 在临时路线中插入VTP节点（如果还没有插入）
+                    if vtp_insert_index < len(temp_vehicle_routes[route_idx]):
+                        if temp_vehicle_routes[route_idx][vtp_insert_index] != vtp_node:
+                            temp_vehicle_routes[route_idx].insert(vtp_insert_index, vtp_node)
+                    else:
+                        temp_vehicle_routes[route_idx].append(vtp_node)
+            
+            # 计算所有车辆的到达时间
+            temp_vehicle_arrive_time = state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_routes)
+            
+            # 获取当前VTP节点的到达时间
+            vtp_arrive_time = None
+            if vtp_insert_vehicle_id in temp_vehicle_arrive_time:
+                if vtp_node in temp_vehicle_arrive_time[vtp_insert_vehicle_id]:
+                    vtp_arrive_time = temp_vehicle_arrive_time[vtp_insert_vehicle_id][vtp_node]
+            
+            # 根据是发射点还是回收点，找k个时间往后/往前的距离最近的节点
+            candidate_nodes = []  # 存储候选节点及其距离和时间
+            
+            # 遍历所有车辆的路线，找到符合条件的节点
+            for vehicle_id, route in enumerate(state.vehicle_routes):
+                vehicle_id = vehicle_id + 1
+                if vehicle_id == is_vehicle_id:
+                    continue
+                if vehicle_id not in temp_vehicle_arrive_time:
+                    continue
+                
+                vehicle_arrive_time_dict = temp_vehicle_arrive_time[vehicle_id]
+                
+                for node_id in route:
+                    # 跳过初始节点
+                    if node_id == self.DEPOT_nodeID:
+                        continue
+                    if node_id == vtp_node:
+                        continue  # 跳过自身
+                    
+                    # 跳过非VTP节点（只考虑VTP节点和客户节点）
+                    # 对于客户节点，通过map_cluster_vtp_dict找到最近的VTP节点
+                    if node_id not in vehicle_arrive_time_dict:
+                        continue
+                    
+                    node_arrive_time = vehicle_arrive_time_dict[node_id]
+                    
+                    # 判断时间条件
+                    time_valid = False
+                    if is_launch_point:
+                        # 发射点：找时间往后的节点（node_arrive_time > vtp_arrive_time）
+                        time_valid = node_arrive_time > vtp_arrive_time
+                    elif is_recovery_point:
+                        # 回收点：找时间往前的节点（node_arrive_time < vtp_arrive_time）
+                        time_valid = node_arrive_time < vtp_arrive_time
+                    else:
+                        # 如果无法判断，则考虑所有节点
+                        time_valid = True
+
+                    if not time_valid:
+                        continue
+                    
+                    # 计算距离
+                    # 优先检查是否是VTP节点
+                    if node_id in self.node:
+                        # 直接是VTP节点
+                        node_obj = self.node[node_id]
+                        node_lat = node_obj.latDeg
+                        node_lon = node_obj.lonDeg
+                        node_alt = node_obj.altMeters
+                        
+                        lat_diff = vtp_lat - node_lat
+                        lon_diff = vtp_lon - node_lon
+                        alt_diff = vtp_alt - node_alt
+                        distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+                        
+                        candidate_nodes.append({
+                            'node_id': node_id,
+                            'distance': distance,
+                            'arrive_time': node_arrive_time,
+                            'vehicle_id': vehicle_id
+                        })
+                
+            # 去重：同一个VTP节点可能被多个客户节点映射到，只保留距离最近的
+            unique_nodes = {}
+            for node_info in candidate_nodes:
+                if node_info['node_id'] == self.DEPOT_nodeID:
+                    continue
+                node_id = node_info['node_id']
+                if node_id not in unique_nodes:
+                    unique_nodes[node_id] = node_info
+            
+            # 根据距离排序，选择k个最近的节点
+            unique_candidate_nodes = list(unique_nodes.values())
+            unique_candidate_nodes.sort(key=lambda x: x['distance'])
+            selected_nodes = unique_candidate_nodes[:k_vtp_nodes]
+            
+            # 计算协同分数
+            if selected_nodes:
+                for node_info in selected_nodes:
+                    distance = node_info['distance']
+                    # 距离越近，协同效应越强
+                    # 同时考虑时间因素：时间越接近，协同效应越强
+                    time_diff = abs(node_info['arrive_time'] - vtp_arrive_time)
+                    time_factor = 1.0 / (1.0 + time_diff)  # 时间越接近，因子越大
+                    distance_factor = 1.0 / (1.0 + distance)
+                    vtp_network_score += distance_factor * time_factor
+                
+                # 归一化：取平均值
+                vtp_network_score = vtp_network_score / len(selected_nodes)
+            
+            # 8. 计算与neighbors的协同分数
+            # neighbors是距离当前客户最近的k个被破坏的客户
+            # 这些neighbors可以通过同一个VTP节点一起服务，产生协同效应
+            # 注意：这里应该计算VTP节点到neighbor的距离，而不是customer到neighbor的距离
+            
+            # if not neighbors:
+                # 如果没有neighbors，返回基础分（综合考虑所有因素）
+                # 基础分 = 无人机数量因子 + 路径距离协同 + 客户距离协同 + 被破坏节点覆盖 + VTP网络协同
+            base_score = 0.5 * (1.0 + np.log(1.0 + drone_count))
+            synergy_score = (base_score + 
+                            0.20 * route_proximity_score + 
+                            0.25 * customer_proximity_score + 
+                            0.20 * destroyed_node_score + 
+                            0.15 * vtp_network_score)
+            return synergy_score
+            
+            # # 计算每个neighbor的协同贡献（使用VTP节点到neighbor的距离）
+            # neighbor_synergy_sum = 0.0
+            # valid_neighbors = 0
+            
+            # for neighbor_id in neighbors:
+            #     if neighbor_id == customer_id:
+            #         continue  # 跳过自身
+                
+            #     if neighbor_id not in self.node:
+            #         continue
+                
+            #     neighbor_node = self.node[neighbor_id]
+            #     neighbor_lat = neighbor_node.latDeg
+            #     neighbor_lon = neighbor_node.lonDeg
+            #     neighbor_alt = neighbor_node.altMeters
+                
+            #     # 计算VTP节点与neighbor的距离（而不是customer与neighbor的距离）
+            #     lat_diff = vtp_lat - neighbor_lat
+            #     lon_diff = vtp_lon - neighbor_lon
+            #     alt_diff = vtp_alt - neighbor_alt
+            #     distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+                
+            #     # 距离越近，协同贡献越大
+            #     # 使用 1/(1+distance) 作为距离因子，避免除以0
+            #     distance_factor = 1.0 / (1.0 + distance)
+                
+            #     # 计算neighbor的协同贡献
+            #     neighbor_synergy = distance_factor
+            #     neighbor_synergy_sum += neighbor_synergy
+            #     valid_neighbors += 1
+            
+            # # 9. 综合计算协同分数
+            # # 协同分数 = (neighbors的协同贡献) * (无人机数量因子) + (路径距离因子) + (客户距离因子) + (被破坏节点覆盖因子) + (VTP网络因子)
+            # # 无人机数量因子：无人机越多，可以服务的neighbors越多，协同效应越强
+            
+            # if valid_neighbors > 0:
+            #     # 平均每个neighbor的协同贡献
+            #     avg_neighbor_synergy = neighbor_synergy_sum / valid_neighbors
+                
+            #     # 无人机数量因子：考虑无人机数量对协同的放大作用
+            #     # 无人机数量越多，可以同时服务的neighbors越多
+            #     # 使用对数函数避免无人机数量过多时分数过大
+            #     drone_factor = 1.0 + np.log(1.0 + drone_count) / np.log(1.0 + len(self.V) if self.V else 1)
+                
+            #     # 考虑可以服务的neighbors数量（受无人机数量限制）
+            #     # 假设每个无人机可以服务一个neighbor（除了当前客户）
+            #     serviceable_neighbors = min(valid_neighbors, max(0, drone_count - 1))
+                
+            #     # 邻居协同分数（主要部分）
+            #     neighbor_synergy_score = avg_neighbor_synergy * valid_neighbors * drone_factor * (1.0 + serviceable_neighbors / max(1, valid_neighbors))
+                
+            #     # 最终协同分数 = 邻居协同 + 路径距离协同 + 客户距离协同 + 被破坏节点覆盖 + VTP网络协同
+            #     # 权重分配：邻居协同（主要）> 路径距离 > 客户距离 > 被破坏节点覆盖 > VTP网络
+            #     synergy_score = (neighbor_synergy_score + 
+            #                     0.20 * route_proximity_score + 
+            #                     0.15 * customer_proximity_score + 
+            #                     0.15 * destroyed_node_score + 
+            #                     0.10 * vtp_network_score)
+            # else:
+            #     # 没有有效的neighbors，综合考虑所有因素
+            #     base_score = 0.5 * (1.0 + np.log(1.0 + drone_count))
+            #     synergy_score = (base_score + 
+            #                     0.25 * route_proximity_score + 
+            #                     0.20 * customer_proximity_score + 
+            #                     0.20 * destroyed_node_score + 
+            #                     0.15 * vtp_network_score)
+            
+        except Exception as e:
+            print(f"Error calculating synergy score: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0.0
+        
+        return synergy_score
+
+    def _calculate_partner_score(self, opt, all_vtps, state):
+        """
+        (VTP-Knn-regret 辅助函数)
+        计算伙伴分 (Partner Score)
+        """
+        return 0.0
+
+    def _find_k_nearest_unassigned(self, customer_id, k, destroy_node):
+        """
+        (VTP-Knn-regret 辅助函数)
+        为单个客户customer_id，在所有待修复客户destroy_node中，找到 K 个距离最近的客户。
+        
+        Args:
+            customer_id (int): 目标客户节点ID
+            k (int): 需要找到的最近邻居数量
+            destroy_node (list): 待修复客户节点ID列表
+            
+        Returns:
+            list: 距离customer_id最近的k个客户节点ID列表（按距离从近到远排序）
+        """
+        if customer_id not in self.node:
+            return []
+        
+        # 获取目标客户的坐标
+        target_node = self.node[customer_id]
+        target_lat = target_node.latDeg
+        target_lon = target_node.lonDeg
+        target_alt = target_node.altMeters
+        
+        # 计算距离函数
+        def calculate_distance(other_id):
+            if other_id not in self.node:
+                return float('inf')
+            other_node = self.node[other_id]
+            # 计算欧几里得距离（考虑经纬度和高度）
+            lat_diff = target_lat - other_node.latDeg
+            lon_diff = target_lon - other_node.lonDeg
+            alt_diff = target_alt - other_node.altMeters
+            distance = np.sqrt(lat_diff**2 + lon_diff**2 + alt_diff**2)
+            return distance
+        
+        # 排除自身（如果customer_id在destroy_node中）
+        candidates = [x for x in destroy_node if x != customer_id]
+        
+        if not candidates:
+            return []
+        
+        # 按距离排序并返回前k个
+        sorted_candidates = sorted(candidates, key=calculate_distance)
+        return sorted_candidates[:k]
 
     def _find_k_best_vehicles_for_shared_vtp(self, vtp_shared, state, k):
         """
@@ -4852,8 +5355,10 @@ class IncrementalALNS:
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
         # temperature = 100.0
-        temperature = 500.0
-        initial_temperature = temperature  # 记录初始温度，用于战略奖励计算
+        # temperature = 500.0
+        # initial_temperature = temperature
+        # self.temperature = temperature
+        # self.initial_temperature = temperature
         # cooling_rate = 0.95  # 缓慢降温以进行更充分的探索
         cooling_rate = 0.985  # 缓慢降温以进行更充分的探索
         print(f"开始ALNS求解，初始成本: {best_objective:.2f}")
@@ -4894,7 +5399,7 @@ class IncrementalALNS:
             chosen_repair_op_name = self.rng.choice(repair_op_names, p=repair_w / np.sum(repair_w))
             repair_op = getattr(self, chosen_repair_op_name)
 
-            print(f"\n--- 迭代 {iteration} | 温度: {temperature:.2f} | 选择策略: {chosen_strategy.upper()} ---")
+            print(f"\n--- 迭代 {iteration} | 温度: {self.temperature:.2f} | 选择策略: {chosen_strategy.upper()} ---")
             print(f"  > 战术组合: {chosen_destroy_op_name} + {chosen_repair_op_name}")
             
             # =================================================================
@@ -4904,19 +5409,19 @@ class IncrementalALNS:
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
             # if iteration == 64:
             #     print(f"调试：找到iteration == 64")
-            if iteration == 47:
-                print(f"调试：找到iteration == 47")
-            if current_state.customer_plan[67] == (9, 143, 67, 144, 2, 2):
-                print("调试：找到customer_plan[67] == (9, 143, 67, 144, 2, 2)")
-            if 9 not in current_state.vehicle_task_data[2][117].drone_list:
-                print("调试：找到vehicle_task_data[2][129].drone_list == [7]")
+            # if iteration == 47:
+            #     print(f"调试：找到iteration == 47")
+            # if current_state.customer_plan[67] == (9, 143, 67, 144, 2, 2):
+            #     print("调试：找到customer_plan[67] == (9, 143, 67, 144, 2, 2)")
+            # if 9 not in current_state.vehicle_task_data[2][117].drone_list:
+            #     print("调试：找到vehicle_task_data[2][129].drone_list == [7]")
             # # 调试条件：检查vehicle_task_data[2][129].drone_list
             # # if hasattr(current_state, 'vehicle_task_data') and 2 in current_state.vehicle_task_data and 129 in current_state.vehicle_task_data[2]:
             #     # if hasattr(current_state.vehicle_task_data[2][129], 'drone_list'):
             #     # if current_state.customer_plan[89] == [7,138,89,141,1,1]:
             #     #     print("调试：找到customer_plan[89] == [7,138,89,141,1,1]")
-            if current_state.customer_plan[72] == (9,140,72,141,2,2):
-                print("调试：找到customer_plan[72] == (9,140,72,141,2,2)")
+            # if current_state.customer_plan[72] == (9,140,72,141,2,2):
+            #     print("调试：找到customer_plan[72] == (9,140,72,141,2,2)")
             # if current_state.customer_plan[75] == (11, 133, 75, 114, 3, 1):
             #     print("调试：找到customer_plan[75] == (11, 133, 75, 114, 3, 1)")
             # if current_state.customer_plan[68] == (11, 145, 68, 143, 1, 1):
@@ -4933,7 +5438,7 @@ class IncrementalALNS:
                 destroyed_state = destroy_op(prev_state, force_vtp_mode=True)
                 
                 # 计算本轮迭代的战略奖励基准值
-                strategic_bonus = base_flexibility_bonus * (temperature / initial_temperature)
+                strategic_bonus = base_flexibility_bonus * (self.temperature / self.initial_temperature)
                 num_destroyed = len(destroyed_state.destroyed_customers_info)
         
                 repaired_state, _ = repair_op(destroyed_state, strategic_bonus, num_destroyed, force_vtp_mode=True)
@@ -4953,7 +5458,7 @@ class IncrementalALNS:
                     if self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] < 0.1:
                         self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = 0.1
                     # 温度仍然需要衰减
-                    temperature *= cooling_rate
+                    self.temperature *= cooling_rate
                     # 记录失败的成本（可以记录前一个状态的成本）
                     y_cost.append(current_objective) 
                     # 将修复后的状态重置为初始状态
@@ -4992,7 +5497,7 @@ class IncrementalALNS:
                         self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = 0.1
 
                     # 温度仍然需要衰减
-                    temperature *= cooling_rate
+                    self.temperature *= cooling_rate
                     # 记录失败的成本（可以记录前一个状态的成本）
                     y_cost.append(current_objective) 
                     # 将修复后的状态重置为初始状态
@@ -5023,7 +5528,7 @@ class IncrementalALNS:
             elif new_objective < current_objective:
                 score = self.reward_scores['better_than_current']
                 print(f"  > 结果: 找到更优解。奖励 {score} 分。")
-            elif self._simulated_annealing_accept(current_objective, new_objective, temperature):
+            elif self._simulated_annealing_accept(current_objective, new_objective, self.temperature):
                 score = self.reward_scores['accepted']
                 print(f"  > 结果: 接受一个较差解（探索成功）。奖励 {score} 分。")
 
@@ -5069,7 +5574,7 @@ class IncrementalALNS:
                 pass
 
             # 温度衰减
-            temperature *= cooling_rate
+            self.temperature *= cooling_rate
             y_cost.append(current_objective)
             
             # 日志记录 (保留)
