@@ -1755,19 +1755,23 @@ class IncrementalALNS:
             plan_type = option_dict['type']
             
             if plan_type == 'vtp_expansion' or plan_type == 'investment' or plan_type == 'sharing':
-                real_cost = option_dict['real_cost']
-                plan = option_dict['plan']
-                extra_info = option_dict['extra_info']
-            elif plan_type == 'heuristic_swap':
-                real_cost = option_dict['total_cost']
-                plan = option_dict
-                extra_info = None
-            else: # 'traditional'
-                real_cost = option_dict['cost']
+                real_cost = option_dict['eval_cost']
                 plan = option_dict['scheme']
-                extra_info = None
-                
-            option_to_execute = (real_cost, plan, plan_type, extra_info)
+                vtp_node = option_dict['vtp_node']
+                vtp_insert_index = option_dict['vtp_insert_index']
+                vtp_insert_vehicle_id = option_dict['vtp_insert_vehicle_id']
+            else:
+                print(f"  > 错误: 未知插入方案类型: {plan_type}")
+                return 0
+            # elif plan_type == 'heuristic_swap':
+            #     real_cost = option_dict['total_cost']
+            #     plan = option_dict
+            #     extra_info = None
+            # else: # 'traditional'
+            #     real_cost = option_dict['cost']
+            #     plan = option_dict['scheme']
+            #     extra_info = None        
+            option_to_execute = (real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id)
             
             self._execute_insertion(temp_state_after, option_to_execute)
             
@@ -1800,17 +1804,17 @@ class IncrementalALNS:
 
     def _execute_insertion(self, state, option):
         """(辅助函数) 专门用于执行插入方案的函数。"""
-        real_cost, plan, plan_type, extra_info = option
+        real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id = option
+        routes = state.vehicle_routes
+        task_data = state.vehicle_task_data
+        arrive_time = state.calculate_rm_empty_vehicle_arrive_time(routes)
+        routes[vtp_insert_vehicle_id - 1].insert(vtp_insert_index, vtp_node)
+        # 检查是否符合约束条件
+        if not is_time_feasible(state.customer_plan, arrive_time):
+            return False
         
-        if plan_type == 'vtp_expansion' or plan_type == 'investment' or plan_type == 'sharing':
-            self._execute_vtp_expansion(state, plan)
-        elif plan_type == 'heuristic_swap':
-            self._execute_heuristic_swap(state, plan)
-        elif plan_type == 'traditional':
-            self._execute_traditional(state, plan)
-        else:
-            print(f"  > 错误: 未知插入方案类型: {plan_type}")
-            return
+
+        return True
 
 
     # def repair_kNN_regret(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
