@@ -457,7 +457,7 @@ class IncrementalALNS:
         # self.destroy_operators = [self.destroy_random_removal]
         # self.repair_operators = [self.noise_regret_insertion]
         # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.noise_regret_insertion,self.repair_kNN_regret]
-        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_k_insertion]
+        self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_k_insertion]
         self.params = {
             'k_neighbors': 3,  # 1. 协同邻居数
             'W_base_synergy': 560.0,  # 2. 协同权重 (基准值)
@@ -1695,7 +1695,9 @@ class IncrementalALNS:
                             future_impact = self._calculate_future_impact(
                                 option_tuple, k_nearest_neighbors, repaired_state
                             )
-                        
+                        # 处理future_impact为0的情况
+                        if future_impact == 0:
+                            continue
                         total_kNN_score = current_eval_cost + w_impact * future_impact
                         # 【修正】: 存储 kNN分数 和 完整的【方案字典】
                         plan_scores.append({'kNN_score': total_kNN_score, 'option_dict': option_tuple})
@@ -1718,8 +1720,71 @@ class IncrementalALNS:
                         'customer': customer,
                         'regret': regret_value,
                         'best_kNN_score': best_kNN_score,
-                        'best_option_tuple': best_kNN_option 
+                        'best_option_tuple': best_kNN_option,
+                        'type': plan_type,
                     })
+            regret_list_sorted = sorted(regret_list, key=lambda x: x['regret'])
+            if not regret_list_sorted:
+                repaired_state.repair_objective = float('inf')
+                return repaired_state, insert_plan
+            # 执行最佳后悔值方案
+            best_regret_option = regret_list_sorted[0]['best_option_tuple']
+            best_regret_score = regret_list_sorted[0]['best_kNN_score']
+            best_regret_customer = regret_list_sorted[0]['customer']
+            best_regret_regret = regret_list_sorted[0]['regret']
+            best_regret_type = regret_list_sorted[0]['type']
+            if best_regret_type == 'traditional':
+                # 约束检查
+                best_scheme = best_regret_option['scheme']
+                customer = best_scheme[2]
+                best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
+                drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
+                repaired_state.customer_plan[customer_node] = best_scheme
+                if drone_id not in repaired_state.uav_assignments:
+                    repaired_state.uav_assignments[drone_id] = []
+                repaired_state.uav_assignments[drone_id].append(best_scheme)
+                if repaired_state.uav_cost is None:
+                    repaired_state.uav_cost = {}
+                repaired_state.uav_cost[customer_node] = best_cost
+                vehicle_task_data = update_vehicle_task(vehicle_task_data, best_scheme, vehicle_route)
+                insert_plan.append((customer, best_scheme, best_cost, 'traditional'))
+            elif best_regret_type == 'vtp_expansion':
+                customer = best_regret_customer
+                vtp_node = best_regret_option['vtp_node']
+                vtp_insert_index = best_regret_option['vtp_insert_index']
+                vtp_insert_vehicle_id = best_regret_option['vtp_insert_vehicle_id']
+                drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_regret_option['scheme']
+                original_cost = best_regret_option['eval_cost']
+                vehicle_routes = repaired_state.vehicle_routes
+                # 执行插入
+                route = vehicle_routes[vtp_insert_vehicle_id - 1]
+                route.insert(vtp_insert_index, vtp_node)
+
+                last_customer_node = route[vtp_insert_index - 1]
+                if vtp_insert_index == 1 or last_customer_node == self.DEPOT_nodeID:
+                    last_drone_list = self.base_drone_assignment[vtp_insert_vehicle_id][:]
+                else:
+                    last_drone_list = vehicle_task_data[vtp_insert_vehicle_id][last_customer_node].drone_list[:]
+                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].drone_list = last_drone_list
+                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].launch_drone_list = []
+                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].recovery_drone_list = []
+
+                vehicle_task_data = update_vehicle_task(vehicle_task_data, best_regret_option['scheme'], vehicle_routes)
+
+                repaired_state.customer_plan[customer_node] = best_regret_option['scheme']
+                if drone_id not in repaired_state.uav_assignments:
+                    repaired_state.uav_assignments[drone_id] = []
+                repaired_state.uav_assignments[drone_id].append(best_regret_option['scheme'])
+                if repaired_state.uav_cost is None:
+                    repaired_state.uav_cost = {}
+                repaired_state.uav_cost[customer_node] = best_regret_option['eval_cost']
+                repaired_state.rm_empty_vehicle_route = [route[:] for route in repaired_state.vehicle_routes]
+                repaired_state.rm_empty_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.rm_empty_vehicle_route)
+                insert_plan.append((customer, best_regret_option['scheme'], best_regret_option['eval_cost'], 'vtp_expansion'))
+            destroy_node.remove(customer)
+            num_repaired += 1
+        return repaired_state, insert_plan
+
                     
     # 在 IncrementalALNS 类中
     def _calculate_future_impact(self, option_dict, k_neighbors, original_state):
@@ -1762,17 +1827,8 @@ class IncrementalALNS:
                 vtp_insert_vehicle_id = option_dict['vtp_insert_vehicle_id']
             else:
                 print(f"  > 错误: 未知插入方案类型: {plan_type}")
-                return 0
-            # elif plan_type == 'heuristic_swap':
-            #     real_cost = option_dict['total_cost']
-            #     plan = option_dict
-            #     extra_info = None
-            # else: # 'traditional'
-            #     real_cost = option_dict['cost']
-            #     plan = option_dict['scheme']
-            #     extra_info = None        
+                return 0      
             option_to_execute = (real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id)
-            
             self._execute_insertion(temp_state_after, option_to_execute)
             
         except Exception as e:
@@ -1784,15 +1840,17 @@ class IncrementalALNS:
         temp_arrive_time = temp_state_after.calculate_rm_empty_vehicle_arrive_time(temp_state_after.vehicle_routes)
 
         for customer in k_neighbors:
-            trad_options_after = self._evaluate_traditional_insertion(
+            trad_options_after, is_heuristic_swap = self._evaluate_traditional_insertion(
                 customer, temp_state_after.vehicle_routes, temp_state_after.vehicle_task_data,
                 temp_arrive_time, temp_state_after, 
                 allow_heuristic_swap=False
             )
-            if trad_options_after:
-                costs_after[customer] = min((opt.get('real_cost', opt.get('cost', float('inf'))) for opt in trad_options_after), default=float('inf'))
-            else:
+            if is_heuristic_swap:
                 costs_after[customer] = float('inf')
+                continue
+            for opt in trad_options_after:
+                cost = opt['eval_cost']
+                costs_after[customer] = min(costs_after[customer], cost)
                 
         # 4. 计算总影响 (Cost_After - Cost_Before)
         for customer in k_neighbors:
@@ -1805,6 +1863,7 @@ class IncrementalALNS:
     def _execute_insertion(self, state, option):
         """(辅助函数) 专门用于执行插入方案的函数。"""
         real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id = option
+        drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = plan
         routes = state.vehicle_routes
         task_data = state.vehicle_task_data
         arrive_time = state.calculate_rm_empty_vehicle_arrive_time(routes)
@@ -1812,8 +1871,26 @@ class IncrementalALNS:
         # 检查是否符合约束条件
         if not is_time_feasible(state.customer_plan, arrive_time):
             return False
-        
-
+        state.vehicle_routes = routes
+        last_node = routes[vtp_insert_vehicle_id - 1][vtp_insert_index - 1]
+        if last_node == self.DEPOT_nodeID or vtp_insert_index == 1:
+            drone_list = self.base_drone_assignment[vtp_insert_vehicle_id][:]
+        else:
+            drone_list = task_data[vtp_insert_vehicle_id][last_node].drone_list[:]
+        task_data[vtp_insert_vehicle_id][vtp_node].drone_list = drone_list
+        task_data[vtp_insert_vehicle_id][vtp_node].launch_drone_list = []
+        state.vehicle_task_data = task_data
+        arrive_time = state.calculate_rm_empty_vehicle_arrive_time(routes)
+        state.customer_plan[customer_node] = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
+        if drone_id not in state.uav_assignments:
+            state.uav_assignments[drone_id] = []
+        state.uav_assignments[drone_id].append((customer_node, launch_node, recovery_node, launch_vehicle_id, recovery_vehicle_id))
+        state.uav_assignments[drone_id].append(plan)
+        if state.uav_cost is None:
+            state.uav_cost = {}
+            state.uav_cost[customer_node] = real_cost
+        task_data = update_vehicle_task(task_data, plan, routes)
+        state.vehicle_task_data = task_data
         return True
 
 
