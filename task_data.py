@@ -291,50 +291,6 @@ class vehicle_task:
             result['nodes'][str(node_id)] = node_dict
             
         return result
-    
-    def fast_copy(self):
-        """
-        创建一个 vehicle_task 对象的快速、独立的副本。
-        - 不可变属性直接赋值。
-        - 共享数据（如 self.node）保持引用。
-        - 实例独有的可变属性（列表、字典）创建新的浅拷贝。
-        """
-        # 1. 创建一个新实例，传递初始的不可变或共享的参数
-        new_task = vehicle_task(self.id, self.vehicleType, self.node_id, self.node)
-
-        # 2. 复制简单的、实例独有的属性
-        new_task.is_task = self.is_task
-        
-        # 3. 复制可变的字典和列表属性
-        # new_task.tasks = {node_id: task_list.copy() for node_id, task_list in self.tasks.items()}
-        new_task.tasks = {node_id: [task.copy() for task in task_list] 
-                          for node_id, task_list in self.tasks.items()}
-        new_task.arrive_times = self.arrive_times.copy()
-        new_task.departure_times = self.departure_times.copy()
-        # new_task.arrive_times = self.arrive_times.copy()
-        # new_task.departure_times = self.departure_times.copy()
-
-        # 4. 根据车辆类型，安全地复制特定属性
-        if self.vehicleType == TYPE_TRUCK:
-            new_task.drone_list = self.drone_list.copy()
-            new_task.launch_drone_list = self.launch_drone_list.copy()
-            new_task.recovery_drone_list = self.recovery_drone_list.copy()
-        
-        elif self.vehicleType == TYPE_UAV:
-            new_task.drone_belong = self.drone_belong
-            # # 复制每个VehicleInfo实例到新对象的dict_vehicle中
-            # for vehicle_id, vehicle_info in self.dict_vehicle.items():
-            #     new_task.dict_vehicle[vehicle_id] = vehicle_info.copy()
-                    # 【重要】复制 dict_vehicle 字典
-            # new_task.dict_vehicle = {
-            #     vehicle_id: vehicle_info.copy() 
-            #     for vehicle_id, vehicle_info in self.dict_vehicle.items()
-            # }
-            new_task.dict_vehicle = {v_id: copy_vehicle_info_dict(info_dict) 
-                                    for v_id, info_dict in self.dict_vehicle.items()}
-            
-
-        return new_task
 
     # def fast_copy(self):
     #     """
@@ -350,26 +306,69 @@ class vehicle_task:
     #     new_task.is_task = self.is_task
         
     #     # 3. 复制可变的字典和列表属性
-    #     #    - tasks 是一个 {node_id: [task_obj1, ...]} 结构
-    #     #    - 我们复制字典，并复制每个节点下的任务列表
-    #     #    - 假设 Task 对象本身不需要深拷贝，这通常是安全的
-    #     new_task.tasks = {node_id: task_list.copy() for node_id, task_list in self.tasks.items()}
-        
+    #     # new_task.tasks = {node_id: task_list.copy() for node_id, task_list in self.tasks.items()}
+    #     new_task.tasks = {node_id: [task.copy() for task in task_list] 
+    #                       for node_id, task_list in self.tasks.items()}
     #     new_task.arrive_times = self.arrive_times.copy()
     #     new_task.departure_times = self.departure_times.copy()
+    #     # new_task.arrive_times = self.arrive_times.copy()
+    #     # new_task.departure_times = self.departure_times.copy()
 
     #     # 4. 根据车辆类型，安全地复制特定属性
     #     if self.vehicleType == TYPE_TRUCK:
-    #         # self.drone_list 等属性在 TRUCK 类型的对象上保证存在
     #         new_task.drone_list = self.drone_list.copy()
     #         new_task.launch_drone_list = self.launch_drone_list.copy()
     #         new_task.recovery_drone_list = self.recovery_drone_list.copy()
         
     #     elif self.vehicleType == TYPE_UAV:
-    #         # self.drone_belong 属性在 UAV 类型的对象上保证存在
     #         new_task.drone_belong = self.drone_belong
-
+    #         # # 复制每个VehicleInfo实例到新对象的dict_vehicle中
+    #         # for vehicle_id, vehicle_info in self.dict_vehicle.items():
+    #         #     new_task.dict_vehicle[vehicle_id] = vehicle_info.copy()
+    #                 # 【重要】复制 dict_vehicle 字典
+    #         # new_task.dict_vehicle = {
+    #         #     vehicle_id: vehicle_info.copy() 
+    #         #     for vehicle_id, vehicle_info in self.dict_vehicle.items()
+    #         # }
+    #         new_task.dict_vehicle = {v_id: copy_vehicle_info_dict(info_dict) 
+    #                                 for v_id, info_dict in self.dict_vehicle.items()}
+            
     #     return new_task
+
+    def fast_copy(self):
+        """
+        创建一个 vehicle_task 对象的快速、独立的副本。
+        - 不可变属性直接赋值。
+        - 共享数据（如 self.node）保持引用。
+        - 实例独有的可变属性（列表、字典）创建新的浅拷贝。
+        """
+        # 1. 创建一个新实例，传递初始的不可变或共享的参数
+        new_task = vehicle_task(self.id, self.vehicleType, self.node_id, self.node)
+
+        # 2. 复制简单的、实例独有的属性
+        new_task.is_task = self.is_task
+        
+        # 3. 复制可变的字典和列表属性
+        #    - tasks 是一个 {node_id: [task_obj1, ...]} 结构
+        #    - 我们复制字典，并复制每个节点下的任务列表
+        #    - 假设 Task 对象本身不需要深拷贝，这通常是安全的
+        new_task.tasks = {node_id: task_list.copy() for node_id, task_list in self.tasks.items()}
+        
+        new_task.arrive_times = self.arrive_times.copy()
+        new_task.departure_times = self.departure_times.copy()
+
+        # 4. 根据车辆类型，安全地复制特定属性
+        if self.vehicleType == TYPE_TRUCK:
+            # self.drone_list 等属性在 TRUCK 类型的对象上保证存在
+            new_task.drone_list = self.drone_list.copy()
+            new_task.launch_drone_list = self.launch_drone_list.copy()
+            new_task.recovery_drone_list = self.recovery_drone_list.copy()
+        
+        elif self.vehicleType == TYPE_UAV:
+            # self.drone_belong 属性在 UAV 类型的对象上保证存在
+            new_task.drone_belong = self.drone_belong
+
+        return new_task
     
     def print_tasks(self):
         """打印车辆任务详细信息"""

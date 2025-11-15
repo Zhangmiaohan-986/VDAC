@@ -367,31 +367,61 @@ import copy
 def make_dict():
     return defaultdict(make_dict)
 
+
 def deep_copy_vehicle_task_data(original_data):
     """
-    快速、高效地复制嵌套的 vehicle_task_data 结构。
+    极致优化的嵌套结构复制。
+    利用原生的 .copy() 保留 defaultdict 类型和 factory，
+    仅手动处理最底层的 vehicle_task 对象隔离。
     """
-    # 1. 创建一个新的顶层 defaultdict，使用与原始对象相同的工厂函数
-    copied_data = defaultdict(original_data.default_factory)
+    # 1. 复制最外层容器 
+    # .copy() 会自动保留 defaultdict 的 default_factory，不需要手动提取
+    copied_data = original_data.copy()
     
-    # 2. 遍历外层字典 (vehicle_id -> inner_dict)
-    for vehicle_id, inner_dict in original_data.items():
+    # 2. 遍历外层字典
+    for vehicle_id, inner_dict in copied_data.items():
         
-        # # 3. 为每个 vehicle_id 创建一个新的内层 defaultdict
-        # new_inner_dict = defaultdict(inner_dict.default_factory)
-        # 检查是否是defaultdict
-        if isinstance(inner_dict, defaultdict):
-            new_inner_dict = defaultdict(inner_dict.default_factory)
-        else:
-            # 如果是普通dict，创建一个新的defaultdict
-            new_inner_dict = defaultdict(lambda: None)
+        # 3. 复制内层容器 (同样保留了类型和 factory)
+        # 如果 inner_dict 是 defaultdict，.copy() 后依然是，且 factory 一致
+        # 如果 inner_dict 是普通 dict，.copy() 后依然是普通 dict
+        new_inner = inner_dict.copy()
         
-        # 4. 遍历内层字典 (node_id -> vehicle_task object)
-        for node_id, task_object in inner_dict.items():
-            # 5. 使用我们定义的 fast_copy 方法来复制 vehicle_task 对象
-            new_inner_dict[node_id] = task_object.fast_copy()
+        # 4. 遍历内层，将 value 替换为全新的对象
+        # 这一步确保了 task 对象不指向同一内存地址
+        for node_id, task_object in new_inner.items():
+            # 调用之前优化过的 vehicle_task.fast_copy()
+            new_inner[node_id] = task_object.fast_copy()
             
-        # 6. 将新创建的内层字典赋值给顶层字典
-        copied_data[vehicle_id] = new_inner_dict
+        # 5. 将处理好的新内层字典回写到外层
+        copied_data[vehicle_id] = new_inner
         
     return copied_data
+# def deep_copy_vehicle_task_data(original_data):
+#     """
+#     快速、高效地复制嵌套的 vehicle_task_data 结构。
+#     """
+#     # 1. 创建一个新的顶层 defaultdict，使用与原始对象相同的工厂函数
+#     copied_data = defaultdict(original_data.default_factory)
+    
+#     # 2. 遍历外层字典 (vehicle_id -> inner_dict)
+#     for vehicle_id, inner_dict in original_data.items():
+        
+#         # # 3. 为每个 vehicle_id 创建一个新的内层 defaultdict
+#         # new_inner_dict = defaultdict(inner_dict.default_factory)
+#         # 检查是否是defaultdict
+#         if isinstance(inner_dict, defaultdict):
+#             new_inner_dict = defaultdict(inner_dict.default_factory)
+#         else:
+#             # 如果是普通dict，创建一个新的defaultdict
+#             new_inner_dict = defaultdict(lambda: None)
+        
+#         # 4. 遍历内层字典 (node_id -> vehicle_task object)
+#         for node_id, task_object in inner_dict.items():
+#             # 5. 使用我们定义的 fast_copy 方法来复制 vehicle_task 对象
+#             new_inner_dict[node_id] = task_object.fast_copy()
+            
+#         # 6. 将新创建的内层字典赋值给顶层字典
+#         copied_data[vehicle_id] = new_inner_dict
+        
+#     return copied_data
+

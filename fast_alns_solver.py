@@ -41,6 +41,11 @@ from cost_y import calculate_plan_cost
 from create_vehicle_route import DiverseRouteGenerator
 from constraint_validator import validate_state_constraints, quick_validate
 from constraints_satisfied import is_constraints_satisfied
+# ======= [PROF] cProfile 相关导入（新增）=======
+import cProfile
+import pstats
+import io
+# ======= [PROF] cProfile 导入结束 =======
 
 class FastMfstspState:
     """
@@ -261,125 +266,207 @@ class FastMfstspState:
         return vehicle_node_levels
 
     def fast_copy(self):
-        """快速浅拷贝 - 只复制引用，不复制数据"""
-        # vehicle_task_data 用 fast_copy
-        vehicle_task_data_copy = self.vehicle_task_data.__class__()  # 保持原类型
-        for k, v in self.vehicle_task_data.items():
-            vehicle_task_data_copy[k] = v.fast_copy() if hasattr(v, 'fast_copy') else copy.deepcopy(v)
-        # global_reservation_table 建议也做深拷贝或类似处理
-        # global_reservation_table_copy = copy.deepcopy(self.global_reservation_table)
-        global_reservation_table_copy = copy.copy(self.global_reservation_table)
+        """
+        针对 FastMfstspState 的极致优化复制
+        """
+        cls = self.__class__
+        # 1. 绕过 __init__
+        new_state = cls.__new__(cls)
         
-        # 创建新的状态对象
-        # 关键修复：确保customer_plan始终是普通字典，不是defaultdict
+        # 2. 复制所有静态引用 (G_air, matrices, node等)
+        new_state.__dict__ = self.__dict__.copy()
+
+        # 3. 手动处理动态数据 (Mutable Objects)
+
+        # [A] Vehicle Routes: List[List] -> 列表推导 + 切片
+        new_state.vehicle_routes = [r[:] for r in self.vehicle_routes]
+
+        # [B] UAV Assignments: Dict[List] -> 字典推导 + 切片
+        new_state.uav_assignments = {k: v[:] for k, v in self.uav_assignments.items()}
+
+        # [C] Customer Plan: Dict[List/Tuple]
+        # 保留类型 (如果是 defaultdict)，并复制内部列表
         if isinstance(self.customer_plan, defaultdict):
-            customer_plan_copy = dict(self.customer_plan)
+            new_state.customer_plan = self.customer_plan.copy() # 保留 default_factory
+            for k, v in new_state.customer_plan.items():
+                new_state.customer_plan[k] = list(v) if isinstance(v, (list, tuple)) else v
         else:
-            customer_plan_copy = self.customer_plan.copy()
-            
-        new_state = FastMfstspState(
-            vehicle_routes=[route.copy() for route in self.vehicle_routes],
-            uav_assignments={k: v.copy() for k, v in self.uav_assignments.items()},
-            customer_plan=customer_plan_copy,
-            vehicle_task_data=vehicle_task_data_copy,
-            global_reservation_table=global_reservation_table_copy,
-            total_cost=self._total_cost,
-            init_uav_plan=self.uav_plan,
-            uav_cost=(self.uav_cost.copy() if isinstance(self.uav_cost, dict) else None),
-            init_vehicle_plan_time=self.vehicle_plan_time,
-            node=self.node,
-            DEPOT_nodeID=self.DEPOT_nodeID,
-            V=self.V,
-            T=self.T,
-            vehicle=self.vehicle,
-            uav_travel=self.uav_travel,
-            veh_distance=self.veh_distance,
-            veh_travel=self.veh_travel,
-            N=self.N,
-            N_zero=self.N_zero,
-            N_plus=self.N_plus,
-            A_total=self.A_total,
-            A_cvtp=self.A_cvtp,
-            A_vtp=self.A_vtp,
-            A_aerial_relay_node=self.A_aerial_relay_node,
-            G_air=self.G_air,
-            G_ground=self.G_ground,
-            air_matrix=self.air_matrix,
-            ground_matrix=self.ground_matrix,
-            air_node_types=self.air_node_types,
-            ground_node_types=self.ground_node_types,
-            A_c=self.A_c,
-            xeee=self.xeee
-        )
+            # 如果确定 Value 是 List，用 v[:]；如果是 Tuple，直接 v
+            # 这里为了安全假设是 List
+            new_state.customer_plan = {k: (v[:] if isinstance(v, list) else v) 
+                                    for k, v in self.customer_plan.items()}
+
+        # [D] Vehicle Task Data: DefaultDict[DefaultDict[vehicle_task]]
+        # 这是性能关键点，调用专门的优化函数
+        # new_state.vehicle_task_data = deep_copy_vehicle_task_data(self.vehicle_task_data)
+        new_state.vehicle_task_data = self._fast_copy_nested_task_data(self.vehicle_task_data)
+
+        # [E] Global Reservation Table: Dict[List[Set/Dict]]
+        # 浅拷贝第一层字典，并拷贝内部列表中的对象
+        new_state.global_reservation_table = {
+            k: [item.copy() for item in v] 
+            for k, v in self.global_reservation_table.items()
+        }
+
+        # [F] 清理历史
+        new_state._modification_history = []
         
-        # 复制可能存在的额外属性
-        if hasattr(self, 'destroyed_node_cost'):
-            new_state.destroyed_node_cost = self.destroyed_node_cost
-        else:
-            new_state.destroyed_node_cost = None
-            
-        if hasattr(self, 'final_uav_plan'):
-            new_state.final_uav_plan = self.final_uav_plan
-        else:
-            new_state.final_uav_plan = None
-            
-        if hasattr(self, 'final_uav_cost'):
-            new_state.final_uav_cost = self.final_uav_cost
-        else:
-            new_state.final_uav_cost = None
-            
-        if hasattr(self, 'final_vehicle_plan_time'):
-            new_state.final_vehicle_plan_time = self.final_vehicle_plan_time
-        else:
-            new_state.final_vehicle_plan_time = None
-            
-        if hasattr(self, 'final_vehicle_task_data'):
-            new_state.final_vehicle_task_data = self.final_vehicle_task_data
-        else:
-            new_state.final_vehicle_task_data = None
-            
-        if hasattr(self, 'final_global_reservation_table'):
-            new_state.final_global_reservation_table = self.final_global_reservation_table
-        else:
-            new_state.final_global_reservation_table = None
-            
-        if hasattr(self, 'destroyed_customers_info'):
-            new_state.destroyed_customers_info = self.destroyed_customers_info.copy() if self.destroyed_customers_info else {}
+        # [G] 处理其他可选的动态属性 (防御性编程，存在才复制)
+        if getattr(self, 'destroyed_customers_info', None):
+            new_state.destroyed_customers_info = {k: v[:] for k, v in self.destroyed_customers_info.items()}
         else:
             new_state.destroyed_customers_info = {}
+
+        if getattr(self, 'rm_empty_vehicle_route', None):
+            new_state.rm_empty_vehicle_route = [r[:] for r in self.rm_empty_vehicle_route]
             
-        if hasattr(self, 'rm_empty_vehicle_route'):
-            new_state.rm_empty_vehicle_route = [route[:] for route in self.rm_empty_vehicle_route] if self.rm_empty_vehicle_route else []
-        else:
-            new_state.rm_empty_vehicle_route = []
-            
-        if hasattr(self, 'empty_nodes_by_vehicle'):
-            new_state.empty_nodes_by_vehicle = self.empty_nodes_by_vehicle.copy() if self.empty_nodes_by_vehicle else {}
-        else:
-            new_state.empty_nodes_by_vehicle = {}
-            
-        if hasattr(self, 'rm_empty_vehicle_arrive_time'):
-            new_state.rm_empty_vehicle_arrive_time = self.rm_empty_vehicle_arrive_time.copy() if self.rm_empty_vehicle_arrive_time else {}
-        else:
-            new_state.rm_empty_vehicle_arrive_time = {}
-            
-        if hasattr(self, 'rm_empty_node_cost'):
-            new_state.rm_empty_node_cost = self.rm_empty_node_cost
-        else:
-            new_state.rm_empty_node_cost = None
-            
-        if hasattr(self, 'final_total_cost'):
-            new_state.final_total_cost = self.final_total_cost
-        else:
-            new_state.final_total_cost = None
-            
-        # 修复：添加缺失的destroyed_vts_info属性复制
-        if hasattr(self, 'destroyed_vts_info'):
-            new_state.destroyed_vts_info = self.destroyed_vts_info.copy() if self.destroyed_vts_info else {}
-        else:
-            new_state.destroyed_vts_info = {}
-        
+        if getattr(self, 'empty_nodes_by_vehicle', None):
+            new_state.empty_nodes_by_vehicle = {k: v[:] for k, v in self.empty_nodes_by_vehicle.items()}
+
         return new_state
+
+    def _fast_copy_nested_task_data(self, original_data):
+        """
+        极速复制嵌套的 defaultdict 结构，并调用 vehicle_task.fast_copy
+        结构: defaultdict(dict, {vehicle_id: defaultdict(lambda:..., {task_id: vehicle_task})})
+        """
+        # 1. 复制外层 defaultdict (保留 default_factory)
+        new_data = original_data.copy()
+        
+        # 2. 遍历第一层 (Vehicle ID)
+        for v_id, inner_dict in original_data.items():
+            # 3. 复制内层 defaultdict (保留 default_factory)
+            new_inner = inner_dict.copy()
+            
+            # 4. 遍历第二层 (Node ID / Task ID)，手动调用 fast_copy
+            for t_id, task_obj in inner_dict.items():
+                # 直接调用我们刚才改写的高速 fast_copy
+                new_inner[t_id] = task_obj.fast_copy()
+            
+            # 将处理好的内层字典放回
+            new_data[v_id] = new_inner
+            
+        return new_data
+    # def fast_copy(self):
+    #     """快速浅拷贝 - 只复制引用，不复制数据"""
+    #     # vehicle_task_data 用 fast_copy
+    #     vehicle_task_data_copy = self.vehicle_task_data.__class__()  # 保持原类型
+    #     for k, v in self.vehicle_task_data.items():
+    #         vehicle_task_data_copy[k] = v.fast_copy() if hasattr(v, 'fast_copy') else copy.deepcopy(v)
+    #     # global_reservation_table 建议也做深拷贝或类似处理
+    #     # global_reservation_table_copy = copy.deepcopy(self.global_reservation_table)
+    #     global_reservation_table_copy = copy.copy(self.global_reservation_table)
+        
+    #     # 创建新的状态对象
+    #     # 关键修复：确保customer_plan始终是普通字典，不是defaultdict
+    #     if isinstance(self.customer_plan, defaultdict):
+    #         customer_plan_copy = dict(self.customer_plan)
+    #     else:
+    #         customer_plan_copy = self.customer_plan.copy()
+            
+    #     new_state = FastMfstspState(
+    #         vehicle_routes=[route.copy() for route in self.vehicle_routes],
+    #         uav_assignments={k: v.copy() for k, v in self.uav_assignments.items()},
+    #         customer_plan=customer_plan_copy,
+    #         vehicle_task_data=vehicle_task_data_copy,
+    #         global_reservation_table=global_reservation_table_copy,
+    #         total_cost=self._total_cost,
+    #         init_uav_plan=self.uav_plan,
+    #         uav_cost=(self.uav_cost.copy() if isinstance(self.uav_cost, dict) else None),
+    #         init_vehicle_plan_time=self.vehicle_plan_time,
+    #         node=self.node,
+    #         DEPOT_nodeID=self.DEPOT_nodeID,
+    #         V=self.V,
+    #         T=self.T,
+    #         vehicle=self.vehicle,
+    #         uav_travel=self.uav_travel,
+    #         veh_distance=self.veh_distance,
+    #         veh_travel=self.veh_travel,
+    #         N=self.N,
+    #         N_zero=self.N_zero,
+    #         N_plus=self.N_plus,
+    #         A_total=self.A_total,
+    #         A_cvtp=self.A_cvtp,
+    #         A_vtp=self.A_vtp,
+    #         A_aerial_relay_node=self.A_aerial_relay_node,
+    #         G_air=self.G_air,
+    #         G_ground=self.G_ground,
+    #         air_matrix=self.air_matrix,
+    #         ground_matrix=self.ground_matrix,
+    #         air_node_types=self.air_node_types,
+    #         ground_node_types=self.ground_node_types,
+    #         A_c=self.A_c,
+    #         xeee=self.xeee
+    #     )
+        
+    #     # 复制可能存在的额外属性
+    #     if hasattr(self, 'destroyed_node_cost'):
+    #         new_state.destroyed_node_cost = self.destroyed_node_cost
+    #     else:
+    #         new_state.destroyed_node_cost = None
+            
+    #     if hasattr(self, 'final_uav_plan'):
+    #         new_state.final_uav_plan = self.final_uav_plan
+    #     else:
+    #         new_state.final_uav_plan = None
+            
+    #     if hasattr(self, 'final_uav_cost'):
+    #         new_state.final_uav_cost = self.final_uav_cost
+    #     else:
+    #         new_state.final_uav_cost = None
+            
+    #     if hasattr(self, 'final_vehicle_plan_time'):
+    #         new_state.final_vehicle_plan_time = self.final_vehicle_plan_time
+    #     else:
+    #         new_state.final_vehicle_plan_time = None
+            
+    #     if hasattr(self, 'final_vehicle_task_data'):
+    #         new_state.final_vehicle_task_data = self.final_vehicle_task_data
+    #     else:
+    #         new_state.final_vehicle_task_data = None
+            
+    #     if hasattr(self, 'final_global_reservation_table'):
+    #         new_state.final_global_reservation_table = self.final_global_reservation_table
+    #     else:
+    #         new_state.final_global_reservation_table = None
+            
+    #     if hasattr(self, 'destroyed_customers_info'):
+    #         new_state.destroyed_customers_info = self.destroyed_customers_info.copy() if self.destroyed_customers_info else {}
+    #     else:
+    #         new_state.destroyed_customers_info = {}
+            
+    #     if hasattr(self, 'rm_empty_vehicle_route'):
+    #         new_state.rm_empty_vehicle_route = [route[:] for route in self.rm_empty_vehicle_route] if self.rm_empty_vehicle_route else []
+    #     else:
+    #         new_state.rm_empty_vehicle_route = []
+            
+    #     if hasattr(self, 'empty_nodes_by_vehicle'):
+    #         new_state.empty_nodes_by_vehicle = self.empty_nodes_by_vehicle.copy() if self.empty_nodes_by_vehicle else {}
+    #     else:
+    #         new_state.empty_nodes_by_vehicle = {}
+            
+    #     if hasattr(self, 'rm_empty_vehicle_arrive_time'):
+    #         new_state.rm_empty_vehicle_arrive_time = self.rm_empty_vehicle_arrive_time.copy() if self.rm_empty_vehicle_arrive_time else {}
+    #     else:
+    #         new_state.rm_empty_vehicle_arrive_time = {}
+            
+    #     if hasattr(self, 'rm_empty_node_cost'):
+    #         new_state.rm_empty_node_cost = self.rm_empty_node_cost
+    #     else:
+    #         new_state.rm_empty_node_cost = None
+            
+    #     if hasattr(self, 'final_total_cost'):
+    #         new_state.final_total_cost = self.final_total_cost
+    #     else:
+    #         new_state.final_total_cost = None
+            
+    #     # 修复：添加缺失的destroyed_vts_info属性复制
+    #     if hasattr(self, 'destroyed_vts_info'):
+    #         new_state.destroyed_vts_info = self.destroyed_vts_info.copy() if self.destroyed_vts_info else {}
+    #     else:
+    #         new_state.destroyed_vts_info = {}
+        
+    #     return new_state
 
     def record_modification(self, operation, data):
         """记录修改操作，用于回滚"""
@@ -1593,6 +1680,11 @@ class IncrementalALNS:
         return repaired_state, insert_plan
 
     def repair_kNN_regret(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
+        # # ======= [PROF] 启动 profiler（新增）=======
+        # profiler = cProfile.Profile()
+        # profiler.enable()
+        # # ======= [PROF] 启动 profiler 结束 =======
+        # try:
         repaired_state = state.fast_copy()
         repaired_state.repair_objective = 0
         vehicle_routes = repaired_state.vehicle_routes
@@ -1622,11 +1714,16 @@ class IncrementalALNS:
                 candidate_new_vtps = self._get_all_candidate_new_vtps(destroy_node, repaired_state)
                 # 使用公共共享VTP节点
                 used_vtps_set = {node for route in repaired_state.vehicle_routes for node in route[1:-1]}
+                # 获得当前状态下的临时task_data方案
+                # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                # temp_state_after = repaired_state.fast_copy()
                 # K_BEST_POSITIONS = 10
                 for customer in destroy_node:
                     # 找到客户的k个最近的，待修复的邻居
+                    candidates = []
                     k_nearest_neighbors = self._find_k_nearest_unassigned(customer, k_neighbors, destroy_node)
                     for vtp_new in candidate_new_vtps:
+                        temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
                         # 找到插入 vtp_new 的最佳车辆和成本 # best_positions 返回: [(veh_id, insert_idx, veh_delta_cost), ...],尝试插入前几个最优的方案，以防止数据维度爆炸
                         best_positions = self._find_k_best_vehicle_for_new_vtp(vtp_new, repaired_state,K_revest_position)  # 输出的车辆id并非索引而是代号 输出的全部的新vtp节点和插入索引
                         if not best_positions: continue
@@ -1634,7 +1731,7 @@ class IncrementalALNS:
                         for (veh_id, insert_idx, veh_delta_cost) in best_positions:
                             # 估算总收益
                             total_benefit, affected_customers = self._calculate_vtp_benefits(
-                                vtp_new, (veh_id, insert_idx), repaired_state, customer
+                                vtp_new, (veh_id, insert_idx), repaired_state, customer, temp_vtp_task_data
                             )
                             for customer, scheme in affected_customers:
                                 cost = scheme[0]
@@ -1644,7 +1741,7 @@ class IncrementalALNS:
                     for vtp_shared in used_vtps_set:
                         # 【核心修改】: 为这个共享VTP，在所有【尚未】使用它的车辆中，找到K个最佳插入位置
                         best_shared_positions = self._find_k_best_vehicles_for_shared_vtp(vtp_shared, repaired_state, K_BEST_POSITIONS)
-
+                        temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
                         if not best_shared_positions: continue
 
                         # 【核心修改】: 遍历这K个最佳共享位置
@@ -1652,30 +1749,42 @@ class IncrementalALNS:
                             
                             # 估算这个“共享方案”带来的总收益
                             total_benefit, affected_customers = self._calculate_vtp_benefits(
-                                vtp_shared, (veh_id, insert_idx), repaired_state, customer
+                                vtp_shared, (veh_id, insert_idx), repaired_state, customer, temp_vtp_task_data
                             )
                             for customer, scheme in affected_customers:
                                 cost = scheme[0]
                                 scheme_plan = scheme[1]
                                 candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_shared, 'vtp_insert_index': insert_idx, 
                                 'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
-                    # 使用传统的candidates方案
+                    # 使用传统的candidates方案，改为传统插入测试
                     traditional_options_list, is_heuristic_swap = self._regret_evaluate_traditional_insertion(
                         customer, vehicle_routes, vehicle_task_data, vehicle_arrive_time, repaired_state
                     )
                     if is_heuristic_swap:
-                        candidates.append({
-                            'customer': customer,
-                            'type': 'heuristic_swap',
-                            'vtp_node': None, # 传统方案不涉及VTP插入
-                            'vtp_insert_index': None,
-                            'vtp_insert_vehicle_id': None,
-                            'orig_scheme': traditional_options_list['orig_scheme'],
-                            'new_scheme': traditional_options_list['new_scheme'],
-                            'orig_cost': traditional_options_list['orig_cost'],
-                            'new_cost': traditional_options_list['new_cost'],
-                            'eval_cost': traditional_options_list['delta_cost'],
-                        })
+                        for trad_opt in traditional_options_list:
+                            if trad_opt['type'] == 'heuristic_swap':
+                                candidates.append({
+                                'customer': customer,
+                                'type': 'heuristic_swap',
+                                'vtp_node': None, # 传统方案不涉及VTP插入
+                                'vtp_insert_index': None,
+                                'vtp_insert_vehicle_id': None,
+                                'orig_scheme': traditional_options_list['orig_scheme'],
+                                'new_scheme': traditional_options_list['new_scheme'],
+                                'orig_cost': traditional_options_list['orig_cost'],
+                                'new_cost': traditional_options_list['new_cost'],
+                                'eval_cost': traditional_options_list['delta_cost'],
+                                })
+                            else:
+                                candidates.append({
+                                    'customer': customer,
+                                    'type': 'traditional',
+                                    'vtp_node': None, # 传统方案不涉及VTP插入
+                                    'vtp_insert_index': None,
+                                    'vtp_insert_vehicle_id': None,
+                                    'scheme': trad_opt['scheme'],
+                                    'eval_cost': trad_opt['eval_cost']
+                                })
                     else:
                         for trad_opt in traditional_options_list:
                             candidates.append({
@@ -1693,7 +1802,9 @@ class IncrementalALNS:
                     candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])[:K_BEST_POSITIONS]
                     plan_scores = []
                     # for option_tuple in candidates_sorted[:K_BEST_POSITIONS]:
+                    # temp_state_after = repaired_state.fast_copy()
                     for option_tuple in candidates_sorted[:]:
+                        temp_state_after = repaired_state.fast_copy()
                         # 【修正】: 按key取值
                         current_eval_cost = option_tuple['eval_cost']
                         plan_type = option_tuple.get('type', 'traditional') # 安全获取
@@ -1707,11 +1818,11 @@ class IncrementalALNS:
                         # 只对有重大结构性影响的方案(新增/共享VTP)计算未来影响
                         if plan_type == 'vtp_expansion':
                             future_impact = self._calculate_future_impact(
-                                option_tuple, neigh, repaired_state
+                                option_tuple, neigh, repaired_state, temp_state_after
                             )
                         else:
                             # 该阶段评估用传统算法插入过程中，对后续任务产生的未来影响
-                            future_impact = self._calculate_tradition_future_impact(option_tuple, neigh, repaired_state)
+                            future_impact = self._calculate_tradition_future_impact(option_tuple, neigh, repaired_state, temp_state_after)
                         total_kNN_score = current_eval_cost + w_impact * future_impact
                         # 【修正】: 存储 kNN分数 和 完整的【方案字典】
                         plan_scores.append({'kNN_score': total_kNN_score, 'option_dict': option_tuple})
@@ -1725,7 +1836,9 @@ class IncrementalALNS:
                     best_kNN_score = plan_scores[0]['kNN_score']
                     second_best = plan_scores[1]['kNN_score'] if len(plan_scores) >= 2 else best_kNN_score
                     regret_value = second_best - best_kNN_score
-                    
+                    # if plan_scores[0]['option_dict']['scheme'] == (12,129,97,113,1,1):
+                    #     print(f"调试：找到plan_scores[0]['option_dict']['scheme'] == (12,129,97,113,1,1)")
+
                     # f. 存储结果
                     regret_list.append({
                         'customer': customer,
@@ -1829,20 +1942,31 @@ class IncrementalALNS:
                         # insert_plan.append((best_cust, best_opt['scheme'], best_opt['eval_cost'], 'vtp_expansion'))
                 # 正确移除已修复客户
                 destroy_node.remove(best_cust)
-                num_repaired += 1
+                # num_repaired += 1
 
                 # 若后续循环还要用到到达时间，建议每轮重算
                 vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_routes)
                 num_repaired += 1
         return repaired_state, insert_plan
+        # finally:
+        #     # ======= [PROF] 停止 profiler 并打印结果（新增）=======
+        #     profiler.disable()
+        #     s = io.StringIO()
+        #     # 按累积时间排序，优先看“真正慢”的函数
+        #     ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
+        #     # 你可以加上过滤，只看相关函数；不想过滤就用 ps.print_stats(30)
+        #     ps.print_stats(
+        #         'repair_kNN_regret|_get_all_candidate_new_vtps|_find_k_nearest_unassigned|_find_k_best_vehicle_for_new_vtp|_find_k_best_vehicles_for_shared_vtp|_calculate_vtp_benefits|_regret_evaluate_traditional_insertion|_calculate_future_impact|_calculate_tradition_future_impact|calculate_rm_empty_vehicle_arrive_time'
+        #     )
+        #     print(s.getvalue())
+        #     print('检查完成')
 
     # 在 IncrementalALNS 类中
-    def _calculate_tradition_future_impact(self, option_dict, k_neighbors, original_state):
+    def _calculate_tradition_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after):
         """
         【k-step 评估器】(字典修正版)
         估算执行 'option_dict' 对 k_neighbors 修复成本的影响。
         """
-        
         M_PENALTY = self.M_PENALTY
         total_impact = 0.0
         
@@ -1869,7 +1993,7 @@ class IncrementalALNS:
                 costs_before[customer] = float('inf')
 
         # 2. 创建一个【模拟】的未来状态
-        temp_state_after = original_state.fast_copy()
+        # temp_state_after = original_state.fast_copy()
         try:
             if option_dict['type'] == 'heuristic_swap':
                 orig_scheme = option_dict['orig_scheme']
@@ -1980,7 +2104,7 @@ class IncrementalALNS:
 
 
     # 在 IncrementalALNS 类中
-    def _calculate_future_impact(self, option_dict, k_neighbors, original_state):
+    def _calculate_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after):
         """
         【k-step 评估器】(字典修正版)
         估算执行 'option_dict' 对 k_neighbors 修复成本的影响。
@@ -2007,7 +2131,7 @@ class IncrementalALNS:
                 costs_before[customer] = float('inf')
 
         # 2. 创建一个【模拟】的未来状态
-        temp_state_after = original_state.fast_copy()
+        # temp_state_after = original_state.fast_copy()
         try:
             # 【修正】: 从字典中提取执行所需的信息
             plan_type = option_dict['type']
@@ -3376,7 +3500,7 @@ class IncrementalALNS:
         else:
             return float('inf'), None
 
-    def _calculate_vtp_benefits(self, vtp_new, vtp_info, state, customers_to_repair):
+    def _calculate_vtp_benefits(self, vtp_new, vtp_info, state, customers_to_repair,temp_vtp_task_data):
         """
         (VTP-Centric 辅助函数)
         计算一个【特定】的VTP投资方案 (插入 vtp_new 到 vtp_info 指定的位置)
@@ -3403,7 +3527,8 @@ class IncrementalALNS:
         # 2. 遍历所有待修复客户，计算使用新VTP的收益
         # ------------------------------------------------------------------
         vehicle_route = [route[:] for route in state.vehicle_routes]
-        vtp_task_data = deep_copy_vehicle_task_data(state.vehicle_task_data)
+        # vtp_task_data = deep_copy_vehicle_task_data(state.vehicle_task_data)
+        vtp_task_data = temp_vtp_task_data
         # 模拟插入最优vtp节点后的
         temp_vehicle_route = [route[:] for route in vehicle_route]
         temp_route = temp_vehicle_route[veh_id - 1]
@@ -5682,19 +5807,6 @@ class IncrementalALNS:
             # =================================================================
             prev_state = current_state.fast_copy()
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
-            # if iteration == 64:
-            #     print(f"调试：找到iteration == 64")
-            # if iteration == 47:
-            #     print(f"调试：找到iteration == 47")
-            # if current_state.customer_plan[67] == (9, 143, 67, 144, 2, 2):
-            #     print("调试：找到customer_plan[67] == (9, 143, 67, 144, 2, 2)")
-            # if 9 not in current_state.vehicle_task_data[2][117].drone_list:
-            #     print("调试：找到vehicle_task_data[2][129].drone_list == [7]")
-            # # 调试条件：检查vehicle_task_data[2][129].drone_list
-            # # if hasattr(current_state, 'vehicle_task_data') and 2 in current_state.vehicle_task_data and 129 in current_state.vehicle_task_data[2]:
-            #     # if hasattr(current_state.vehicle_task_data[2][129], 'drone_list'):
-            #     # if current_state.customer_plan[89] == [7,138,89,141,1,1]:
-            #     #     print("调试：找到customer_plan[89] == [7,138,89,141,1,1]")
             # if current_state.customer_plan[72] == (9,140,72,141,2,2):
             #     print("调试：找到customer_plan[72] == (9,140,72,141,2,2)")
             # if current_state.customer_plan[75] == (11, 133, 75, 114, 3, 1):
