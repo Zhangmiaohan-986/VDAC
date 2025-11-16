@@ -325,28 +325,191 @@ class FastMfstspState:
 
         return new_state
 
-    def _fast_copy_nested_task_data(self, original_data):
+    # 实现按需复制的fast_copy任务。
+    def temp_fast_copy(self, vehicles_to_copy=None):
+        """
+        针对 FastMfstspState 的精简复制：
+        只深拷贝在修复/预测过程中会被修改的字段：
+        - vehicle_routes
+        - vehicle_task_data
+        - customer_plan
+        - uav_assignments
+        - uav_cost（强烈建议一并复制）
+        其他大部分参数/图结构/配置都共享引用，加速很多。
+
+        参数:
+        vehicles_to_copy: 如果指定了车辆ID列表，只复制这些车辆的 `vehicle_task_data`，其他车辆共享原数据
+        """
+        from collections import defaultdict
+
+        cls = self.__class__
+        # 1. 绕过 __init__ 创建新实例
+        new_state = cls.__new__(cls)
+
+        # 2. 先做一份 __dict__ 浅拷贝，静态/只读字段都直接复用
+        new_state.__dict__ = self.__dict__.copy()
+
+        # ---------- 只对“会被改动”的字段做真正复制 ----------
+
+        # 1) vehicle_routes: List[List[node]]
+        new_state.vehicle_routes = [route[:] for route in self.vehicle_routes]
+
+        # 2) uav_assignments: Dict[drone_id, List[scheme]]
+        new_state.uav_assignments = {
+            k: v[:] for k, v in self.uav_assignments.items()
+        }
+
+        # 3) customer_plan: 统一转成普通 dict，并复制 list 型 value
+        if isinstance(self.customer_plan, defaultdict):
+            base_plan = dict(self.customer_plan)   # 去掉 default_factory，防止默默插入新key
+        else:
+            base_plan = self.customer_plan
+
+        new_state.customer_plan = {
+            cust: (plan[:] if isinstance(plan, list) else plan)
+            for cust, plan in base_plan.items()
+        }
+
+        # 4) vehicle_task_data: 用局部复制，只复制指定车辆的数据
+        new_state.vehicle_task_data = self._fast_copy_nested_task_data(
+            self.vehicle_task_data, vehicles_to_copy=vehicles_to_copy
+        )
+
+        # 5) uav_cost: 这个在模拟里会改，必须有自己的 dict
+        if isinstance(self.uav_cost, dict):
+            new_state.uav_cost = self.uav_cost.copy()
+        else:
+            new_state.uav_cost = self.uav_cost
+
+        # （可选）6) vehicle 如果你在运行中会改，可以复制一份；否则直接共享即可
+        # new_state.vehicle = self.vehicle.copy() if isinstance(self.vehicle, dict) else self.vehicle
+
+        # 7) 修改历史清空
+        new_state._modification_history = []
+
+        return new_state
+
+    def _fast_copy_nested_task_data(self, original_data, vehicles_to_copy=None):
         """
         极速复制嵌套的 defaultdict 结构，并调用 vehicle_task.fast_copy
-        结构: defaultdict(dict, {vehicle_id: defaultdict(lambda:..., {task_id: vehicle_task})})
+        结构: defaultdict(dict, {vehicle_id: defaultdict(..., {task_id: vehicle_task})})
+
+        vehicles_to_copy:
+            - None: 全量复制（兼容之前的行为）
+            - set/list: 只复制这些 vehicle_id 的内层和 vehicle_task，其他 veh_id 共享原始数据
         """
-        # 1. 复制外层 defaultdict (保留 default_factory)
+        # 顶层 shallow copy，保留类型和 default_factory
         new_data = original_data.copy()
-        
-        # 2. 遍历第一层 (Vehicle ID)
-        for v_id, inner_dict in original_data.items():
-            # 3. 复制内层 defaultdict (保留 default_factory)
+
+        # 如果没有指定车辆，执行旧的“全量复制”逻辑
+        if vehicles_to_copy is None:
+            for v_id, inner_dict in original_data.items():
+                new_inner = inner_dict.copy()
+                for t_id, task_obj in inner_dict.items():
+                    new_inner[t_id] = task_obj.fast_copy()
+                new_data[v_id] = new_inner
+            return new_data
+
+        # 指定了只复制部分车辆
+        vehicles_to_copy = set(vehicles_to_copy)
+
+        for v_id in vehicles_to_copy:
+            inner_dict = original_data.get(v_id)
+            if inner_dict is None:
+                continue
+            # 内层 shallow copy，保留 default_factory
             new_inner = inner_dict.copy()
-            
-            # 4. 遍历第二层 (Node ID / Task ID)，手动调用 fast_copy
             for t_id, task_obj in inner_dict.items():
-                # 直接调用我们刚才改写的高速 fast_copy
                 new_inner[t_id] = task_obj.fast_copy()
-            
-            # 将处理好的内层字典放回
             new_data[v_id] = new_inner
-            
+
+        # 其它 v_id 的内层字典直接共享原始的（不动）
         return new_data
+
+    # def temp_fast_copy(self): 该方案及以下被验证为可行，但是没有被使用
+    #     """
+    #     针对 FastMfstspState 的精简复制：
+    #     只深拷贝在修复/预测过程中会被修改的字段：
+    #     - vehicle_routes
+    #     - vehicle_task_data
+    #     - customer_plan
+    #     - uav_assignments
+    #     - uav_cost（强烈建议一并复制）
+    #     其他大部分参数/图结构/配置都共享引用，加速很多。
+    #     """
+    #     from collections import defaultdict
+
+    #     cls = self.__class__
+    #     # 1. 绕过 __init__ 创建新实例
+    #     new_state = cls.__new__(cls)
+
+    #     # 2. 先做一份 __dict__ 浅拷贝，静态/只读字段都直接复用
+    #     new_state.__dict__ = self.__dict__.copy()
+
+    #     # ---------- 只对“会被改动”的字段做真正复制 ----------
+
+    #     # 1) vehicle_routes: List[List[node]]
+    #     new_state.vehicle_routes = [route[:] for route in self.vehicle_routes]
+
+    #     # 2) uav_assignments: Dict[drone_id, List[scheme]]
+    #     new_state.uav_assignments = {
+    #         k: v[:] for k, v in self.uav_assignments.items()
+    #     }
+
+    #     # 3) customer_plan: 统一转成普通 dict，并复制 list 型 value
+    #     if isinstance(self.customer_plan, defaultdict):
+    #         base_plan = dict(self.customer_plan)   # 去掉 default_factory，防止默默插入新key
+    #     else:
+    #         base_plan = self.customer_plan
+
+    #     new_state.customer_plan = {
+    #         cust: (plan[:] if isinstance(plan, list) else plan)
+    #         for cust, plan in base_plan.items()
+    #     }
+
+    #     # 4) vehicle_task_data: 用你写好的嵌套复制函数
+    #     #    这里还是全量复制每辆车的 task_data，如果之后要更极限，可以再加“只复制相关车辆”的参数
+    #     new_state.vehicle_task_data = self._fast_copy_nested_task_data(
+    #         self.vehicle_task_data
+    #     )
+
+    #     # 5) uav_cost: 这个在模拟里会改，必须有自己的 dict
+    #     if isinstance(self.uav_cost, dict):
+    #         new_state.uav_cost = self.uav_cost.copy()
+    #     else:
+    #         new_state.uav_cost = self.uav_cost
+
+    #     # （可选）6) vehicle 如果你在运行中会改，可以复制一份；否则直接共享即可
+    #     # new_state.vehicle = self.vehicle.copy() if isinstance(self.vehicle, dict) else self.vehicle
+
+    #     # 7) 修改历史清空
+    #     new_state._modification_history = []
+
+    #     return new_state
+
+    # def _fast_copy_nested_task_data(self, original_data):
+    #     """
+    #     极速复制嵌套的 defaultdict 结构，并调用 vehicle_task.fast_copy
+    #     结构: defaultdict(dict, {vehicle_id: defaultdict(lambda:..., {task_id: vehicle_task})})
+    #     """
+    #     # 1. 复制外层 defaultdict (保留 default_factory)
+    #     new_data = original_data.copy()
+        
+    #     # 2. 遍历第一层 (Vehicle ID)
+    #     for v_id, inner_dict in original_data.items():
+    #         # 3. 复制内层 defaultdict (保留 default_factory)
+    #         new_inner = inner_dict.copy()
+            
+    #         # 4. 遍历第二层 (Node ID / Task ID)，手动调用 fast_copy
+    #         for t_id, task_obj in inner_dict.items():
+    #             # 直接调用我们刚才改写的高速 fast_copy
+    #             new_inner[t_id] = task_obj.fast_copy()
+            
+    #         # 将处理好的内层字典放回
+    #         new_data[v_id] = new_inner
+            
+    #     return new_data
+
     # def fast_copy(self):
     #     """快速浅拷贝 - 只复制引用，不复制数据"""
     #     # vehicle_task_data 用 fast_copy
@@ -1699,6 +1862,7 @@ class IncrementalALNS:
         k_neighbors = self.params.get('k_neighbors', 3)
         K_BEST_POSITIONS = self.params.get('K_BEST_POSITIONS', 5) 
         w_impact = self.params.get('w_impact', 0.5)
+        # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
         if force_vtp_mode:
             while len(destroy_node) > 0:
                 final_bonus = 0.0
@@ -1715,21 +1879,25 @@ class IncrementalALNS:
                 # 使用公共共享VTP节点
                 used_vtps_set = {node for route in repaired_state.vehicle_routes for node in route[1:-1]}
                 # 获得当前状态下的临时task_data方案
-                # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
                 # temp_state_after = repaired_state.fast_copy()
                 # K_BEST_POSITIONS = 10
                 for customer in destroy_node:
                     # 找到客户的k个最近的，待修复的邻居
                     candidates = []
                     k_nearest_neighbors = self._find_k_nearest_unassigned(customer, k_neighbors, destroy_node)
+                    # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                    # temp_vtp_task_data = restore_vehicle_task_data_for_vehicles(temp_vtp_task_data, repaired_state.vehicle_task_data, self.T)
+
                     for vtp_new in candidate_new_vtps:
-                        temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                        # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                        temp_vtp_task_data = restore_vehicle_task_data_for_vehicles(temp_vtp_task_data, repaired_state.vehicle_task_data, self.T)
                         # 找到插入 vtp_new 的最佳车辆和成本 # best_positions 返回: [(veh_id, insert_idx, veh_delta_cost), ...],尝试插入前几个最优的方案，以防止数据维度爆炸
                         best_positions = self._find_k_best_vehicle_for_new_vtp(vtp_new, repaired_state,K_revest_position)  # 输出的车辆id并非索引而是代号 输出的全部的新vtp节点和插入索引
                         if not best_positions: continue
                         # 【核心修改】: 遍历这K个最佳插入位置，评估每一个的潜力
                         for (veh_id, insert_idx, veh_delta_cost) in best_positions:
-                            # 估算总收益
+                            # 估算总收益,潜在危险，temp_vtp_task_data会被假设插入的内容修改里面的drone_list列表，但是目前没有报错
                             total_benefit, affected_customers = self._calculate_vtp_benefits(
                                 vtp_new, (veh_id, insert_idx), repaired_state, customer, temp_vtp_task_data
                             )
@@ -1741,9 +1909,9 @@ class IncrementalALNS:
                     for vtp_shared in used_vtps_set:
                         # 【核心修改】: 为这个共享VTP，在所有【尚未】使用它的车辆中，找到K个最佳插入位置
                         best_shared_positions = self._find_k_best_vehicles_for_shared_vtp(vtp_shared, repaired_state, K_BEST_POSITIONS)
-                        temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                        # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
+                        temp_vtp_task_data = restore_vehicle_task_data_for_vehicles(temp_vtp_task_data, repaired_state.vehicle_task_data, self.T)
                         if not best_shared_positions: continue
-
                         # 【核心修改】: 遍历这K个最佳共享位置
                         for (veh_id, insert_idx, veh_delta_cost) in best_shared_positions:
                             
@@ -1769,11 +1937,11 @@ class IncrementalALNS:
                                 'vtp_node': None, # 传统方案不涉及VTP插入
                                 'vtp_insert_index': None,
                                 'vtp_insert_vehicle_id': None,
-                                'orig_scheme': traditional_options_list['orig_scheme'],
-                                'new_scheme': traditional_options_list['new_scheme'],
-                                'orig_cost': traditional_options_list['orig_cost'],
-                                'new_cost': traditional_options_list['new_cost'],
-                                'eval_cost': traditional_options_list['delta_cost'],
+                                'orig_scheme': trad_opt['orig_scheme'],
+                                'new_scheme': trad_opt['new_scheme'],
+                                'orig_cost': trad_opt['orig_cost'],
+                                'new_cost': trad_opt['new_cost'],
+                                'eval_cost': trad_opt['delta_cost'],
                                 })
                             else:
                                 candidates.append({
@@ -1804,7 +1972,7 @@ class IncrementalALNS:
                     # for option_tuple in candidates_sorted[:K_BEST_POSITIONS]:
                     # temp_state_after = repaired_state.fast_copy()
                     for option_tuple in candidates_sorted[:]:
-                        temp_state_after = repaired_state.fast_copy()
+                        temp_state_after = repaired_state.temp_fast_copy(vehicles_to_copy=self.T)
                         # 【修正】: 按key取值
                         current_eval_cost = option_tuple['eval_cost']
                         plan_type = option_tuple.get('type', 'traditional') # 安全获取
@@ -2161,6 +2329,9 @@ class IncrementalALNS:
                 customer, temp_state_after.vehicle_routes, temp_state_after.vehicle_task_data,
                 temp_arrive_time, temp_state_after)
             if is_heuristic_swap:
+                costs_after[customer] = float('inf')
+                continue
+            if trad_options_after == (None,None):
                 costs_after[customer] = float('inf')
                 continue
             cost = trad_options_after[0]
@@ -4354,7 +4525,9 @@ class IncrementalALNS:
         
         # 3. 如果两种方案都失败，返回None
         # print(f"客户点 {customer} 传统插入评估失败: {e}")
-        return (None,None), False
+        # return (None,None), False
+        return (None,None),False
+
             
         # except Exception as e:
         #     print(f"客户点 {customer} 传统插入评估失败: {e}")

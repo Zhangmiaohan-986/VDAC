@@ -492,6 +492,54 @@ def remove_vehicle_task(vehicle_task_data, y, vehicle_route):
 
     return vehicle_task_data
 
+def restore_vehicle_task_data_for_vehicles(
+    temp_vehicle_task_data,
+    original_vehicle_task_data,
+    changed_vehicle_ids
+):
+    """
+    将 temp_vehicle_task_data 中指定车辆的任务数据
+    恢复为 original_vehicle_task_data 中的“初始版本”。
+
+    参数:
+        temp_vehicle_task_data: 当前被修改过的任务数据 (dict / defaultdict)
+        original_vehicle_task_data: 原始的任务数据 (dict / defaultdict)
+        changed_vehicle_ids: 需要恢复的车辆 ID 列表/集合，比如 {2, 3}
+    """
+    from collections import defaultdict
+
+    # 为了安全，统一用 set
+    changed_vehicle_ids = set(changed_vehicle_ids)
+
+    # 确保 temp_vehicle_task_data 是一个字典
+    if temp_vehicle_task_data is None:
+        temp_vehicle_task_data = {}
+
+    # 创建一个新的字典来保存恢复后的数据
+    restored_data = temp_vehicle_task_data.copy()
+
+    for veh_id in changed_vehicle_ids:
+        # 如果原始数据里没有这辆车，就直接跳过/或者删掉
+        if veh_id not in original_vehicle_task_data:
+            # 如果希望删除 temp 里的这辆车任务，可以用下面这行
+            # restored_data.pop(veh_id, None)
+            continue
+
+        inner_dict = original_vehicle_task_data[veh_id]
+
+        # 保留原始内层 dict/defaultdict 的类型和 default_factory
+        new_inner = inner_dict.copy()
+
+        # 遍历节点任务，逐个调用 vehicle_task.fast_copy()
+        for node_id, task_obj in inner_dict.items():
+            new_inner[node_id] = task_obj.fast_copy()
+
+        # 用“恢复后的”新内层字典覆盖 restored_data 中对应车辆的任务数据
+        restored_data[veh_id] = new_inner
+
+    return restored_data
+
+
 def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route, orig_vehicle_id):
     drone_id, vtp_i, customer, vtp_j, v_id, recv_v_id = y
     veh_launch_index = v_id -1
