@@ -2259,8 +2259,12 @@ class IncrementalALNS:
                 min_real_cost = trad_options_after[1]['delta_cost']
                 costs_after[customer] = min_real_cost
             else:
-                cost = trad_options_after[0]
-                costs_after[customer] = cost
+                if trad_options_after == (None,None):
+                    costs_after[customer] = float('inf')
+                    continue
+                else:
+                    cost = trad_options_after[0]
+                    costs_after[customer] = cost
                 
         # 4. 计算总影响 (Cost_After - Cost_Before)
         for customer in k_neighbors:
