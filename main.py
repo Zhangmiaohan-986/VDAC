@@ -121,7 +121,8 @@ class make_vehicle:  # 添加车辆和无人机的各类属性集合
 		self.serviceTime	= serviceTime / 60	# [minutes].转变为小时
 		self.batteryPower	= batteryPower	# [joules].
 		self.flightRange	= flightRange	# 'high' or 'low'
-		self.vehicleSpeed	= vehicleSpeed*3.6  # 无人机速度为-1，卡车速度为10
+		# self.vehicleSpeed	= vehicleSpeed*3.6  # 无人机速度为-1，卡车速度为10
+		self.vehicleSpeed	= vehicleSpeed  # 无人机速度为-1，卡车速度为10
 		self.per_cost = per_cost
 		self.fix_cost = fix_cost
 		self.time_cost = 2  # 定义无人机单位飞行成本价格
@@ -285,9 +286,17 @@ class missionControl():
 		numUAVs = 6  # 无人机数量
 		UAVSpeedType = 1
 		numTrucks = 3  # 卡车数量，在此处修改卡车数量和无人机
+		# per_uav_cost = 1  # 每公里成本
 		per_uav_cost = 1  # 每公里成本
-		per_vehicle_cost = 1  # 每公里成本
+		# per_vehicle_cost = 1  # 每公里成本
+		per_vehicle_cost = 2  # 每公里成本
 		max_Drones = 10  # 无人机最大数量
+		# 提前到达惩罚成本-km、h
+		early_arrival_cost = [5, 0.083] # 提前惩罚成本，分别是小时和分钟为单位惩罚成本
+		# 迟到惩罚成本-km、h
+		late_arrival_cost = [20, 0.333] # 迟到惩罚成本，分别是小时和分钟为单位惩罚成本
+		self.early_arrival_cost = early_arrival_cost
+		self.late_arrival_cost = late_arrival_cost
 		# Define data structures
 		self.node = {}
 		self.vehicle = {}
@@ -335,7 +344,7 @@ class missionControl():
 		print('Calling a Heuristic to solve VDCD-AC...')
 		# 调用启发式算法解决mFSTSP-VDS问题
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
-		[objVal, assignments, packages, costTruck, costUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground)
+		[objVal, assignments, packages, costTruck, costUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
 		print('The mFSTSP-VDS Heuristic is Done.  It returned something')
 		numUAVcust			= 0
 		numTruckCust		= 0		
@@ -471,6 +480,8 @@ class missionControl():
 				tmpTrucks += 1
 				if (tmpTrucks <= numTrucks):
 					vehicleSpeed = 10
+					# 车辆速度设定为30km/h
+					# vehicleSpeed = 30
 					self.vehicle[vehicleID] = make_vehicle(vehicleID, vehicleType, takeoffSpeed, cruiseSpeed, landingSpeed, yawRateDeg, cruiseAlt, capacityLbs, launchTime, recoveryTime, serviceTime, batteryPower, flightRange, vehicleSpeed, maxDrones, per_vehicle_cost)
 
 		if (tmpUAVs < numUAVs):
@@ -479,7 +490,7 @@ class missionControl():
 
 		# a)  tbl_locations.csv
 		# 获得空中地面图，空地距离矩阵，位置和节点类型，及所有数据集合。
-		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types = generate_complex_network(NUM_POINTS, SEED, Z_COORD, UAV_DISTANCE)
+		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(NUM_POINTS, SEED, Z_COORD, UAV_DISTANCE)
 		# 读取节点位置，类型数据
 		# 使用字典构造函数
 		air_ground_node_types =  merge_and_renumber_dicts(air_node_types, ground_node_types)
@@ -531,6 +542,8 @@ class missionControl():
 		self.ground_node_types = ground_node_types
 		self.G_air = G_air
 		self.G_ground = G_ground
+		# 客户点时间窗设置
+		self.customer_time_windows_h = customer_time_windows_h
 
 if __name__ == '__main__':
 	try:

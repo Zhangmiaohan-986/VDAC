@@ -82,7 +82,7 @@ class make_packages:
 
 
 # def solve_mfstsp_heuristic(node, vehicle, travel, problemName, vehicleFileID, numUAVs, UAVSpeedType):
-def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground):
+def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -206,7 +206,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID,
 		 V, T, vehicle, uav_travel, veh_distance, veh_travel, 
 		N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee)
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost)
 		# # 处理空跑节点
 		# rm_empty_vehicle_route, empty_nodes_by_vehicle = rm_empty_node(init_customer_plan, init_vehicle_route)
 		# rm_empty_node_cost = calculate_plan_cost(init_uav_plan, rm_empty_vehicle_route, vehicle, T, V, veh_distance)
@@ -220,13 +220,14 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			init_vehicle_plan_time, init_vehicle_task_data, 
 			init_global_reservation_table, node, DEPOT_nodeID, 
 			V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, 
-			air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee
+			air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, 
+			customer_time_windows_h, early_arrival_cost, late_arrival_cost
 		)
 		
 		# 使用高效ALNS求解（增量式算法，避免深拷贝）
 		best_solution, best_objective, statistics = solve_with_fast_alns(
 		initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, 
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,
 		max_iterations=50, max_runtime=30, use_incremental=True
 		)
 		

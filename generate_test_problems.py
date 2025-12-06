@@ -28,41 +28,135 @@ def generate_points(num_points,seed):
     df_R201[numeric_cols] = df_R201[numeric_cols].apply(pd.to_numeric, errors='coerce')
     start_pos = (float(df_R201.at[0, 'XCOORD.']), float(df_R201.at[0, 'YCOORD.']))
     if num_points <= 100:
-        # position_points = df_R201[0:num_points+1]
-        position_points_sample = df_R201.sample(n=num_points,random_state=seed)
+        # position_points_sample = df_R201.sample(n=num_points,random_state=seed)
+        # position_points_sample = position_points_sample.sort_index()
+        # return position_points_sample, start_pos
+        # 单独取出 depot 行（index=0）
+        depot_row = df_R201.iloc[[0]]
+        # 剩下的全是客户
+        customer_rows = df_R201.iloc[1:]
+
+        if num_points <= 1:
+            # 只要 1 个点，那就只返回 depot
+            position_points_sample = depot_row.copy()
+        else:
+            sample_size = min(num_points - 1, len(customer_rows))
+            sampled_customers = customer_rows.sample(
+                n=sample_size,
+                random_state=seed
+            )
+            position_points_sample = pd.concat(
+                [depot_row, sampled_customers],
+                axis=0
+            )
+
+        # 用原始 index 排序，这样 depot 一定在最前面（index=0）
         position_points_sample = position_points_sample.sort_index()
         return position_points_sample, start_pos
     else:
+        # with open(file_path_RC101, 'r') as file:
+        #     data0_RC101 = file.read()
+        # data_RC101 = []
+        # for line in data0_RC101.strip().split('\n'):
+        #     data_RC101.append(line.split())
+        # df_RC101 = pd.DataFrame(data_RC101[1:], columns=columns)
+        # df_RC101[numeric_cols] = df_RC101[numeric_cols].apply(pd.to_numeric, errors='coerce')
+        # df_combine = pd.concat([df_R201, df_RC101], ignore_index=True)
+        # position_points_sample = df_combine.sample(n=num_points,random_state=seed)
+        # position_points_sample = position_points_sample.sort_index()
         with open(file_path_RC101, 'r') as file:
             data0_RC101 = file.read()
+
         data_RC101 = []
         for line in data0_RC101.strip().split('\n'):
             data_RC101.append(line.split())
+
         df_RC101 = pd.DataFrame(data_RC101[1:], columns=columns)
         df_RC101[numeric_cols] = df_RC101[numeric_cols].apply(pd.to_numeric, errors='coerce')
-        df_combine = pd.concat([df_R201, df_RC101], ignore_index=True)
-        position_points_sample = df_combine.sample(n=num_points,random_state=seed)
-        position_points_sample = position_points_sample.sort_index()
-        # start_pos = (float(df_R201.at[0,'XCOORD.']), float(df_R201.at[0,'YCOORD.']))
 
-        return position_points_sample, start_pos # 输出pd格式的
-def generates_points(num_points,seed):
+        # depot 仍然只用 R201 的第一个点
+        depot_row = df_R201.iloc[[0]]
+        r201_customers = df_R201.iloc[1:]
+
+        # 合并：R201 客户 + RC101 全部
+        df_combine_no_depot = pd.concat(
+            [r201_customers, df_RC101],
+            ignore_index=True
+        )
+
+        if num_points <= 1:
+            position_points_sample = depot_row.copy()
+        else:
+            sample_size = min(num_points - 1, len(df_combine_no_depot))
+            sampled_customers = df_combine_no_depot.sample(
+                n=sample_size,
+                random_state=seed
+            )
+            position_points_sample = pd.concat(
+                [depot_row, sampled_customers],
+                axis=0
+            )
+
+        position_points_sample = position_points_sample.sort_index()
+        return position_points_sample, start_pos
+
+# def generates_points(num_points,seed):
+#     file_path_R1 = '/Users/zhangmiaohan/PycharmProjects/gurobi_test/tits_CMDVRP-CT/map/homberger_400_customer_instances/R1_4_1.TXT'
+#     np.random.seed(seed)
+#     with open(file_path_R1, 'r') as file:
+#         data0_R1 = file.read()
+#     # 将数据转换为DataFrame
+#     data_R1 = []
+#     for line in data0_R1.strip().split('\n'):
+#         data_R1.append(line.split())
+#     columns = ["CUST", "XCOORD.", 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
+#     df_R1 = pd.DataFrame(data_R1[1:], columns=columns)
+#     # 将字符型列转换为数字
+#     numeric_cols = ['CUST', 'XCOORD.', 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
+#     df_R1[numeric_cols] = df_R1[numeric_cols].apply(pd.to_numeric, errors='coerce')
+#     position_points_sample = df_R1.sample(n=num_points,random_state=seed)
+#     position_points_sample = position_points_sample.sort_index()
+#     return position_points_sample  # 输出pd格式的
+
+def generates_points(num_points, seed):
     file_path_R1 = '/Users/zhangmiaohan/PycharmProjects/gurobi_test/tits_CMDVRP-CT/map/homberger_400_customer_instances/R1_4_1.TXT'
     np.random.seed(seed)
+
     with open(file_path_R1, 'r') as file:
         data0_R1 = file.read()
-    # 将数据转换为DataFrame
+
     data_R1 = []
     for line in data0_R1.strip().split('\n'):
         data_R1.append(line.split())
+
     columns = ["CUST", "XCOORD.", 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
     df_R1 = pd.DataFrame(data_R1[1:], columns=columns)
-    # 将字符型列转换为数字
+
     numeric_cols = ['CUST', 'XCOORD.', 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
     df_R1[numeric_cols] = df_R1[numeric_cols].apply(pd.to_numeric, errors='coerce')
-    position_points_sample = df_R1.sample(n=num_points,random_state=seed)
+
+    # Homberger 的 depot：同样假设在第一行（CUST=1）
+    depot_row = df_R1.iloc[[0]]
+    customer_rows = df_R1.iloc[1:]
+
+    if num_points <= 1:
+        # 只要 depot
+        position_points_sample = depot_row.copy()
+    else:
+        sample_size = min(num_points - 1, len(customer_rows))
+        sampled_customers = customer_rows.sample(
+            n=sample_size,
+            random_state=seed
+        )
+        position_points_sample = pd.concat(
+            [depot_row, sampled_customers],
+            axis=0
+        )
+
+    # 排序保证 depot 在最前
     position_points_sample = position_points_sample.sort_index()
-    return position_points_sample  # 输出pd格式的
+
+    return position_points_sample
 
 def generate_graph(position_points, seed, uav_distance=None, prob=0.75):
     if uav_distance is None:
@@ -445,6 +539,19 @@ def visualize_tower_connections(G_air, G_ground):
 def generate_complex_network(num_points, seed, Z_coord, uav_distance):
     # 0. 生成原始数据点
     position_points, start_pos = generate_points(num_points, seed)
+    # 新增有关时间窗的考量
+    time_windows_h = {}
+    for _, row in position_points.iterrows():
+        cust_id = int(row["CUST"])
+        ready_h   = row["READY"]   / 60.0  # 分钟 → 小时
+        due_h     = row["DUE"]     / 60.0
+        service_h = row["SERVICE"] / 60.0
+        time_windows_h[cust_id] = {
+            "ready_h":   ready_h,
+            "due_h":     due_h,
+            "service_h": service_h,
+        }
+    # 结束添加
     depot = position_points.iloc[0:1].copy()
     depot['Z_COORD'] = 0  # 仓库节点高度
     depot['NODE_TYPE'] = 'DEPOT'  # 定义仓库节点
@@ -504,16 +611,20 @@ def generate_complex_graph(all_nodes, depot, air_nodes, vtp_nodes, customer_node
         air_node_types[i] = 'Aerial Relay Node'
     # 添加VTP对应的空中节点
     vtp_offset = len(air_coordinates)
+
     for i, coord in enumerate(air_vtp_coordinates):
         node_id = i + vtp_offset
         G_air.add_node(node_id, pos=coord, type='VTP Takeoff/Landing Node')
         air_node_types[node_id] = 'VTP Takeoff/Landing Node'
+
     # 添加客户对应的空中节点
     customer_offset = vtp_offset + len(air_vtp_coordinates)
+    customer_positions = {}
     for i, coord in enumerate(air_customer_coordinates):
         node_id = i + customer_offset
         G_air.add_node(node_id, pos=coord, type='CUSTOMER Takeoff/Landing Node')
         air_node_types[node_id] = 'CUSTOMER Takeoff/Landing Node'
+        customer_positions[node_id] = coord
     
     # 使用现有函数添加空中边连接
     G_air = add_random_tree(G_air, air_distance_matrix, air_network_coords)
@@ -596,6 +707,7 @@ def generate_complex_graph(all_nodes, depot, air_nodes, vtp_nodes, customer_node
             G_ground.add_edge(node_i, node_j, weight=dist)
     air_positions = nx.get_node_attributes(G_air, 'pos')  # 获取节点位置
     ground_positions = nx.get_node_attributes(G_ground, 'pos')
+    # customer_positions = {i: coord for i, coord in enumerate(customer_coordinates)}
     air_adj_matrix = np.array(nx.adjacency_matrix(G_air).todense())
     ground_adj_matrix = np.array(nx.adjacency_matrix(G_ground).todense())
     # 5. 整理原始格式数据，包含所有节点信息
@@ -621,8 +733,56 @@ def generate_complex_graph(all_nodes, depot, air_nodes, vtp_nodes, customer_node
     if relay_data:
         relay_df = pd.DataFrame(relay_data)
         original_format_data = pd.concat([original_format_data, relay_df])
-    
-    return G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, original_format_data, air_node_types, ground_node_types
+
+    # ========= 新增：为每个 ground 节点生成“时间窗（小时）”字典 =========
+    customer_time_windows_h = {}
+
+    for node_id, coord in customer_positions.items():
+        x, y, z = coord  # z = Z_coord
+
+        # 在 original_format_data 里找到对应的地面客户行：
+        # XCOORD, YCOORD 相同，NODE_TYPE 是 'CUSTOMER'，Z_COORD=0
+        mask = (
+            np.isclose(original_format_data['XCOORD.'], x) &
+            np.isclose(original_format_data['YCOORD.'], y) &
+            (original_format_data['NODE_TYPE'] == 'CUSTOMER')
+        )
+        matched = original_format_data[mask]
+
+        if matched.empty:
+            # 如果找不到，可以选择 raise 或者略过，这里先打印一下方便你调试
+            # print(f"[WARN] No matching CUSTOMER row for air customer node {node_id} at ({x},{y})")
+            continue
+
+        row = matched.iloc[0]
+        cust_id   = int(row['CUST'])
+        ready_h   = row['READY']   / 60.0  # 分钟 → 小时
+        due_h     = row['DUE']     / 60.0
+        service_h = row['SERVICE'] / 60.0
+
+        customer_time_windows_h[node_id] = {
+            "cust":      cust_id,
+            "ready_h":   ready_h,
+            "due_h":     due_h,
+            "service_h": service_h,
+        }
+    # =================================================================
+
+    return (
+        G_air,
+        G_ground,
+        air_adj_matrix,
+        air_positions,
+        ground_adj_matrix,
+        ground_positions,
+        original_format_data,
+        air_node_types,
+        ground_node_types,
+        customer_time_windows_h   # <== 多返回了这个 dict
+    )
+    # ============================================================
+
+    # return G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, original_format_data, air_node_types, ground_node_types, ground_time_windows_h
 
 
 def visualize_tower_connections_3D(G_air, G_ground, all_data, air_node_types, ground_node_types, fig_size=(10, 8), dpi=150, save_path=None):

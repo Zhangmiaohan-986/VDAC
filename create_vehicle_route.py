@@ -59,7 +59,7 @@ TASK_NAMES = {
     TASK_DRONE_FLIGHT_BACK: "无人机飞行-返回回收点"
 }
 # 生成可行的初始解任务
-def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee):
+def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost):
     vtp_index = A_vtp
     # 提取VTP节点坐标用于聚类
     vtp_coords = np.array([node[i].position for i in vtp_index])
@@ -68,7 +68,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     num_trucks = len(T)
     num_clusters = min(num_trucks, len(vtp_index))
     # 初始化路径生成器
-    generator = DiverseRouteGenerator(node, DEPOT_nodeID, A_vtp, V, T, vehicle, uav_travel, veh_distance, veh_travel, vtp_coords, num_clusters, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee)
+    generator = DiverseRouteGenerator(node, DEPOT_nodeID, A_vtp, V, T, vehicle, uav_travel, veh_distance, veh_travel, vtp_coords, num_clusters, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost)
 
     vehicle_task_data = generator._create_initial_vehicle_task_data()
     files = list_saved_files()
@@ -82,11 +82,13 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = get_latest_saved_file()
     # input_filename = "my_special_result_20num_3v_6d_200n"
     # input_filename = None
-    input_filename = "my_special_result_20num_3v_6d_100n"
+    # input_filename = "my_special_result_20num_3v_6d_100n"
+    input_filename = "my_special_result_30num_3v_6d_100n"
+
     if input_filename is None:
         # 生成多个候选解
         # num_solutions = 20  # 生成5个候选解
-        num_solutions = 20  # 生成5个候选解
+        num_solutions = 30  # 生成30个候选解
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
         uav_task_dict = defaultdict(dict)
@@ -131,7 +133,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 保存输入数据
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
-        custom_name = "my_special_result_20num_3v_6d_100n"
+        custom_name = "my_special_result_30num_3v_6d_100n"
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名
     # input_filename = save_input_data(input_data)
@@ -162,7 +164,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
 # 设计生成多样化的车辆路径，以及生成无人机插入，组成完成的车辆+无人机初始线路
 class DiverseRouteGenerator:
     """生成多样化高质量车辆路径的类"""
-    def __init__(self, node, depot_id, vtp_indices, uav_ids, truck_ids, vehicle, uav_travel, veh_distance, veh_travel, vtp_coords, num_clusters, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee):   
+    def __init__(self, node, depot_id, vtp_indices, uav_ids, truck_ids, vehicle, uav_travel, veh_distance, veh_travel, vtp_coords, num_clusters, G_air, G_ground, air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost):   
         self.node = node
         self.depot_id = depot_id
         self.vtp_indices = vtp_indices
@@ -185,6 +187,9 @@ class DiverseRouteGenerator:
         self.A_c = A_c
         self.vtp_index = {}
         self.xeee = xeee
+        self.customer_time_windows_h = customer_time_windows_h
+        self.early_arrival_cost = early_arrival_cost
+        self.late_arrival_cost = late_arrival_cost
         self.save_path = r'saved_solutions'
         
         # 提取坐标
@@ -201,7 +206,7 @@ class DiverseRouteGenerator:
         
         # 计算距离矩阵
         self._compute_distance_matrices()
-    
+        
     # 快速生成可行的车辆-无人机初始路径方案
     def generate_uav_solutions(self, vehicle_candidate_solutions, vehicle_task_data, total_important_vtps):
         uav_solutions = defaultdict(dict)
@@ -212,6 +217,7 @@ class DiverseRouteGenerator:
         best_insert_cost = float('inf')
         task_arrival_times = defaultdict(dict)
         customer_plan = []
+        total_window_cost = []
         uav_plan = []
         plan_cost = []
         total_vehicle_task = []
@@ -236,19 +242,27 @@ class DiverseRouteGenerator:
             # 2. 为每个客户点找到可行的无人机配送方案,车辆的路径随着vehicle——task_data更新
             current_vehicle_task = self._create_initial_vehicle_task_data()
             best_customer_plan, best_uav_plan, best_plan_cost, update_vehicle_task_data = self._find_feasible_uav_plans(solution, veh_arrival_times, current_vehicle_task)
+            # 根据当前的优化方案，设计得到带时间窗口的最终成本
+            # window_cost = calculate_window_cost(best_customer_plan, best_uav_plan, best_plan_cost, veh_arrival_times, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
             # 根据选择的最优调度方案，更新车辆和无人机在各个节点的状态
             customer_plan.append(best_customer_plan)
             uav_plan.append(best_uav_plan)
             plan_cost.append(best_plan_cost)
+            # total_window_cost.append(window_cost)
             total_vehicle_task.append(update_vehicle_task_data)
             total_vehicle_route.append(solution)
             vehicle_arrival_time.append(veh_arrival_times)
             # total_important_vtps.append(total_important_vtps[num_index])
             # 计算每种方案的总成本
             total_cost = calculate_plan_cost(best_plan_cost, solution, self.vehicle, self.truck_ids, self.uav_ids, self.veh_distance)
+            # 计算带时间窗口的最终成本
+            window_cost,uav_tw_violate_cost, total_cost_dict = calculate_window_cost(best_customer_plan, best_plan_cost, veh_arrival_times, self.vehicle, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
+            total_window_total_cost = calculate_plan_cost(total_cost_dict, solution, self.vehicle, self.truck_ids, self.uav_ids, self.veh_distance)
+            total_window_cost.append(total_window_total_cost)
             num_plan_cost.append(total_cost)
         # 找到代价最小的方案组合
-        num_plan_cost = np.array(num_plan_cost)
+        # num_plan_cost = np.array(num_plan_cost)
+        num_plan_cost = np.array(total_window_cost)
         min_plan_cost_index = np.argmin(num_plan_cost)
         best_customer_plan = customer_plan[min_plan_cost_index]
         best_uav_plan = uav_plan[min_plan_cost_index]
@@ -831,12 +845,20 @@ class DiverseRouteGenerator:
                     best_customer_plan[new_customer] = best_new_y
                     best_plan_cost[new_customer] = best_new_cost
                     best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
+                    best_customer_plan[orig_customer] = best_orig_y
+                    best_plan_cost[orig_customer] = best_orig_cost
+                    best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
                     vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
                 else:
                     best_customer_plan[orig_customer] = best_orig_y
                     best_plan_cost[orig_customer] = best_orig_cost
                     best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
+                    best_customer_plan[new_customer] = best_new_y
+                    best_plan_cost[new_customer] = best_new_cost
+                    best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
                     vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
             else: 
                 drone_id = best_y_cijkdu_plan['drone_id']
                 launch_node = best_y_cijkdu_plan['launch_node']

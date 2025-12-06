@@ -45,10 +45,10 @@ def calculate_plan_cost(best_plan_cost, vehicle_route, vehicle, vehicle_id, uav_
     uav_total_cost = np.sum(np_best_plan_cost)
     vehicle_fix_cost = 0
     vehicle_total_route_cost = 0
-    # 计算车辆固定成本
-    for v_id in vehicle_id:
-        fix_cost = vehicle[v_id].fix_cost
-        vehicle_fix_cost += fix_cost
+    # 计算车辆固定成本,取消当前车辆固定成本
+    # for v_id in vehicle_id:
+    #     fix_cost = vehicle[v_id].fix_cost
+    #     vehicle_fix_cost += fix_cost
     # 计算每辆车的路径成本
     for veh_idx, route in enumerate(vehicle_route):
         veh_id = vehicle_id[veh_idx]
@@ -89,7 +89,235 @@ def update_calculate_plan_cost(best_uav_plan, vehicle_route, vehicle, vehicle_id
     total_cost = uav_total_cost + vehicle_fix_cost + vehicle_total_route_cost
     return total_cost
     
-    
+
+def calculate_window_cost(best_customer_plan,
+                          best_plan_cost,
+                          veh_arrival_times,
+                          vehicle,
+                          customer_time_windows_h,
+                          early_arrival_cost,
+                          late_arrival_cost,
+                          uav_fly_time_to_customer,
+                          node):
+    """
+    计算带时间窗口惩罚的总成本。
+
+    Parameters
+    ----------
+    best_customer_plan : dict
+        key -> (uav_id, i_vtp, customer_node, j_vtp, v_id, recv_v_id)。
+    best_uav_plan : dict or None
+        这里暂时没有用到，占位以兼容你原有接口。
+    best_plan_cost : dict
+        key -> 原始无人机/车辆成本（比如你的 best_plan_cost）。
+    veh_arrival_times : dict
+        veh_arrival_times[v_id][node_id] = 卡车到达该 VTP 节点的时间 (小时)。
+    vehicle : dict
+        vehicle[v_id] / vehicle[uav_id] -> make_vehicle 对象。
+    truck_ids : list
+        卡车 id 列表，这里暂时没直接用到（你以后可以扩展卡车时间窗惩罚）。
+    uav_ids : list
+        无人机 id 列表，这里也只是占位。
+    veh_distance : dict
+        卡车距离矩阵，这里暂时不用。
+    customer_time_windows_h : dict
+        tw_idx -> {'cust', 'ready_h', 'due_h', 'service_h'}。
+    early_arrival_cost : list or tuple
+        [penalty_per_hour, penalty_per_minute]，此处只用 penalty_per_hour。
+    late_arrival_cost : list or tuple
+        [penalty_per_hour, penalty_per_minute]，此处只用 penalty_per_hour。
+    uav_fly_time_to_customer : dict or None
+        若为 dict：uav_fly_time_to_customer[key] = 无人机从发射 VTP 到客户的飞行时间 (小时)。
+        若为 None：默认为所有飞行时间为 0，你可以在外面换成基于 uav_travel 的真实值。
+
+    Returns
+    -------
+    window_total_cost : float
+        所有 key 的 total 成本之和。
+    uav_tw_violation_cost : dict
+        key -> 时间窗惩罚成本。
+    total_cost_dict : dict
+        key -> best_plan_cost[key] + uav_tw_violation_cost[key]。
+    """
+    # 1) 先算每个客户的时间窗惩罚
+    uav_tw_violation_cost = compute_uav_tw_violation_cost(
+        best_customer_plan=best_customer_plan,
+        veh_arrival_times=veh_arrival_times,
+        vehicle=vehicle,
+        customer_time_windows_h=customer_time_windows_h,
+        early_arrival_cost=early_arrival_cost,
+        late_arrival_cost=late_arrival_cost,
+        uav_fly_time_to_customer=uav_fly_time_to_customer,
+        node=node,
+    )
+
+    # 2) 把原始成本和时间窗惩罚叠加
+    total_cost_dict = combine_plan_and_tw_cost(
+        best_plan_cost=best_plan_cost,
+        uav_tw_violation_cost=uav_tw_violation_cost
+    )
+
+    # 3) 总成本（可以理解为“所有客户的无人机方案成本 + 时间窗惩罚”）
+    window_total_cost = float(sum(total_cost_dict.values()))
+
+    return window_total_cost, uav_tw_violation_cost, total_cost_dict
+
+def calculate_customer_window_cost(best_customer_plan,
+                          vehicle,
+                          veh_arrival_times,
+                          customer_time_windows_h,
+                          early_arrival_cost,
+                          late_arrival_cost,
+                          uav_fly_time_to_customer,
+                          node):
+
+    # 1) 先算每个客户的时间窗惩罚
+    uav_tw_violation_cost = compute_uav_tw_violation_cost(
+        best_customer_plan=best_customer_plan,
+        vehicle=vehicle,
+        veh_arrival_times=veh_arrival_times,
+        customer_time_windows_h=customer_time_windows_h,
+        early_arrival_cost=early_arrival_cost,
+        late_arrival_cost=late_arrival_cost,
+        uav_fly_time_to_customer=uav_fly_time_to_customer,
+        node=node,
+    )
+
+    uav_tw_violation_cost = float(sum(uav_tw_violation_cost.values()))
+    return uav_tw_violation_cost
+
+def combine_plan_and_tw_cost(best_plan_cost, uav_tw_violation_cost):
+    """
+    将原有的 best_plan_cost 与时间窗违背成本逐项相加。
+
+    Parameters
+    ----------
+    best_plan_cost : dict
+        key -> 原始成本（比如你 cal_low_cost 得到的 cost）。
+    uav_tw_violation_cost : dict
+        key -> 时间窗惩罚成本。
+
+    Returns
+    -------
+    total_cost_dict : dict
+        key -> 原始成本 + 时间窗惩罚。
+    """
+
+    total_cost_dict = defaultdict(float)
+
+    all_keys = set(best_plan_cost.keys()) | set(uav_tw_violation_cost.keys())
+    for k in all_keys:
+        base_cost = float(best_plan_cost.get(k, 0.0))
+        tw_cost = float(uav_tw_violation_cost.get(k, 0.0))
+        total_cost_dict[k] = base_cost + tw_cost
+
+    return total_cost_dict
+
+
+from collections import defaultdict
+
+def compute_uav_tw_violation_cost(best_customer_plan,
+                                  veh_arrival_times,
+                                  vehicle,
+                                  customer_time_windows_h,
+                                  early_arrival_cost,
+                                  late_arrival_cost,
+                                  uav_fly_time_to_customer,node):
+    """
+    计算无人机在每个客户点的时间窗违背成本。
+    Parameters
+    ----------
+    best_customer_plan : dict
+        key -> (uav_id, i_vtp, customer_node, j_vtp, v_id, recv_v_id)
+        这里 key 通常与 customer_time_windows_h 的 key 对应。
+    veh_arrival_times : dict
+        veh_arrival_times[v_id][node_id] = 卡车到达该节点的时间 (小时)。
+    vehicle : dict
+        vehicle[v_id] / vehicle[uav_id] -> make_vehicle 对象。
+    customer_time_windows_h : dict
+        tw_idx -> {'cust', 'ready_h', 'due_h', 'service_h'}。
+    early_arrival_cost : list or tuple
+        [penalty_per_hour, penalty_per_minute]，此处只用 penalty_per_hour。
+    late_arrival_cost : list or tuple
+        [penalty_per_hour, penalty_per_minute]，此处只用 penalty_per_hour。
+    uav_fly_time_to_customer : dict
+        uav_fly_time_to_customer[key] = 无人机从发射 VTP 到客户点的飞行时间 (小时)。
+        若你愿意，也可以在函数内部改成从 uav_travel 计算。
+    Returns
+    -------
+    uav_tw_violation_cost : dict
+        key -> 时间窗违背成本（仅无人机部分），结构与 best_plan_cost 一致。
+    """
+    # 每小时的提前 / 迟到惩罚系数
+    early_penalty_per_hour = float(early_arrival_cost[0])
+    late_penalty_per_hour = float(late_arrival_cost[0])
+
+    uav_tw_violation_cost = defaultdict(float)
+
+    for key_idx, plan in best_customer_plan.items():
+        if plan is None:
+            continue
+
+        uav_id, i_vtp, customer_node, j_vtp, v_id, recv_v_id = plan
+        map_i_vtp = node[i_vtp].map_key
+        map_j_vtp = node[j_vtp].map_key
+        # # 只对无人机任务计时间窗成本，如果你要卡车也算，可以去掉这一段判断
+        # if hasattr(vehicle[uav_id], "vehicleType"):
+        #     try:
+        #         vtype = vehicle[uav_id].vehicleType
+        #     except Exception:
+        #         vtype = None
+        # else:
+        #     vtype = None
+
+        # # 如果不是 UAV，就不在这里算时间窗成本
+        # # （如果你车也要罚，自己放开这句）
+        # # 假设 TYPE_UAV 是已定义常量
+        # try:
+        #     TYPE_UAV
+        # except NameError:
+        #     TYPE_UAV = 1  # 保险起见给个默认值，实际工程里用你自己的
+
+        # if vtype is not None and vtype != TYPE_UAV:
+        #     uav_tw_violation_cost[key_idx] = 0.0
+        #     continue
+
+        # 对应的时间窗信息
+        tw = customer_time_windows_h.get(key_idx, None)
+        if tw is None:
+            # 没配时间窗就认为不罚
+            uav_tw_violation_cost[key_idx] = 0.0
+            print(f"没有时间窗信息，不罚")
+            continue
+
+        ready_h = float(tw['ready_h'])
+        due_h = float(tw['due_h'])
+        # service_h = float(tw['service_h'])  # 若需要可参与后续计算
+
+        # 卡车在发射 VTP 的到达时间
+        try:
+            truck_arrival_time = float(veh_arrival_times[v_id][i_vtp])
+        except KeyError:
+            # 没有这个到达时间，说明方案不完整，时间窗惩罚设 0 或者你可以 raise
+            uav_tw_violation_cost[key_idx] = 0.0
+            print(f"没有卡车到达时间，请检查")
+            continue
+        
+        # 无人机抵达节点时间
+        arrival_time_at_customer = uav_fly_time_to_customer[uav_id][map_i_vtp][customer_node].totalTime + truck_arrival_time
+
+        # 提前 & 迟到（单位：小时）
+        early = max(0.0, ready_h - arrival_time_at_customer)
+        late = max(0.0, arrival_time_at_customer - due_h)
+
+        early_cost = early * early_penalty_per_hour
+        late_cost = late * late_penalty_per_hour
+
+        tw_cost = early_cost + late_cost
+        uav_tw_violation_cost[key_idx] = tw_cost
+
+    return uav_tw_violation_cost
+
 
 # def sort_customer_plans(customer_costs, plan_y):
 #     """

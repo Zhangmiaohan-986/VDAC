@@ -169,28 +169,8 @@ class FastMfstspState:
         # vehicle_cost = len(self.vehicle_routes) * 10
         # uav_cost = sum(len(assignments) for assignments in self.uav_assignments.values()) * 5
         # self._total_cost = vehicle_cost + uav_cost
-        # self._total_cost = calculate_plan_cost(self.uav_cost, self.vehicle_routes, self.vehicle, self.T, self.V, self.veh_distance)
-        total_cost = calculate_plan_cost(self.uav_cost, self.vehicle_routes, self.vehicle, self.T, self.V, self.veh_distance)
-        return total_cost
-
-    def win_total_objective(self):
-        """
-        计算带时间窗惩罚的总成本
-        """
-        vehicle_arrive_time = self.calculate_rm_empty_vehicle_arrive_time(self.vehicle_routes)
-        route_total_cost = calculate_plan_cost(self.uav_cost, self.vehicle_routes, self.vehicle, self.T, self.V, self.veh_distance)  # 此处计算了车辆固定成本，车辆与无人机的路线成本，未计算时间窗惩罚
-        win_total_cost, win_penalty_cost, total_dict_cost = calculate_window_cost(self.customer_plan,
-                          self.uav_cost,
-                          vehicle_arrive_time,
-                          self.vehicle,
-                          self.customer_time_windows_h,
-                          self.early_arrival_cost,
-                          self.late_arrival_cost,
-                          self.uav_travel,
-                          self.node)
-        total_win_penalty_cost = float(sum(win_penalty_cost.values()))
-        total_cost = route_total_cost + total_win_penalty_cost
-        return total_cost
+        self._total_cost = calculate_plan_cost(self.uav_cost, self.vehicle_routes, self.vehicle, self.T, self.V, self.veh_distance)
+        return self._total_cost
     
     def validate_constraints(self, verbose=True):
         """
@@ -733,12 +713,11 @@ class IncrementalALNS:
         # self.destroy_operators = [self.destroy_worst_removal]
         # self.destroy_operators = [self.destroy_shaw_rebalance_removal]
         # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion]
-        # self.repair_operators = [self.repair_kNN_regret]
+        self.repair_operators = [self.repair_kNN_regret]
         # self.destroy_operators = [self.destroy_random_removal]
-        # self.repair_operators = [self.repair_regret_insertion]
         # self.repair_operators = [self.noise_regret_insertion]
-        self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion, self.noise_regret_insertion, self.repair_kNN_regret]
-        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_kNN_regret]
+        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.noise_regret_insertion,self.repair_kNN_regret]
+        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_k_insertion]
         self.params = {
             'k_neighbors': 3,  # 1. 协同邻居数
             'W_base_synergy': 560.0,  # 2. 协同权重 (基准值)
@@ -833,17 +812,6 @@ class IncrementalALNS:
         if force_vtp_mode:
             num_repaired = 0
             while len(destroy_node) > 0:
-                # 2. 计算初始状态的全局总成本 (作为基准)
-                try:
-                    current_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
-                    base_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(
-                        repaired_state.customer_plan, repaired_state.uav_cost, current_arrive_time, 
-                        self.vehicle, self.customer_time_windows_h, 
-                        self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-                    )
-                except Exception:
-                    base_total_cost = float('inf') # 初始状态
-
                 best_option_overall = None
                 best_customer_to_insert = None
                 min_overall_eval_cost = float('inf')
@@ -858,48 +826,30 @@ class IncrementalALNS:
                 # vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.rm_empty_vehicle_route)
                 vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
 
+                
                 # 存储所有候选方案
                 all_candidates = []
                 customer_candidates = []
                 # 遍历所有待插入客户点，计算每个节点的最优插入成本
                 for customer in destroy_node:
+                    
                     # 1. 首先尝试传统插入方案（使用现有节点）
-                    traditional_result,is_heuristic_swap = self._evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time,
-                    base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state)
-
-                    if traditional_result[0] or traditional_result[1] is not None:
+                    traditional_result,is_heuristic_swap = self._evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
+                    if traditional_result is not None:
                         traditional_cost, traditional_scheme = traditional_result
                         if is_heuristic_swap:
-                            # 计算新插入的方案带时间窗及路线的成本
-                            # delete_customer = traditional_scheme['orig_scheme'][2]
-                            # delete_traditional_cost = total_cost_dict.get(delete_customer, 0.0)
-                            # traditional_orig_scheme = traditional_result['orig_scheme']
-                            # traditional_new_scheme = traditional_result['new_scheme']
-                            # traditional_orig_win_cost = total_cost_dict.get(traditional_orig_scheme, 0.0)
-                            # trad_total_cost = calculate_customer_window_cost(traditional_orig_scheme, self.vehicle, current_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                            # + calculate_customer_window_cost(traditional_new_scheme, self.vehicle, current_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                            # current_total_cost = base_total_cost - traditional_orig_win_cost + trad_total_cost
-                            current_total_cost = traditional_scheme['total_cost']
-                            deta_total_cost = traditional_scheme['win_cost']
                             customer_candidates.append({
                                 'customer': customer,
                                 'scheme': traditional_scheme,
                                 'cost': traditional_cost,
-                                'win_cost': deta_total_cost,
-                                'total_cost': current_total_cost,
                                 'type': 'heuristic_swap',
                                 'vtp_node': None
                             })
                         else:
-                            # 计算新插入的方案带时间窗及路线的成本
-                            # win_traditional_cost = calculate_customer_window_cost(traditional_scheme, self.vehicle, current_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                            current_total_cost = traditional_cost + base_total_cost
                             customer_candidates.append({
                                 'customer': customer,
                                 'scheme': traditional_scheme,
                                 'cost': traditional_cost,
-                                'win_cost': traditional_cost,
-                                'total_cost': current_total_cost,
                                 'type': 'traditional',
                                 'vtp_node': None
                             })
@@ -921,7 +871,7 @@ class IncrementalALNS:
                         vtp_insert_vehicle_id = vtp_infor[1]
                         vtp_insert_index = vtp_infor[2]
                         if vtp_result is not None:
-                            vtp_cost, vtp_scheme = vtp_result  # 这里的vtp_cost指的是插入后改变时间的惩罚成本+原本飞行路线+车辆绕行+新插入路线和惩罚成本的总和
+                            vtp_cost, vtp_scheme = vtp_result
                             # 应用最终奖励来增加VTP插入在前期被选中的概率
                             adjusted_cost = vtp_cost - final_bonus
                             
@@ -929,7 +879,6 @@ class IncrementalALNS:
                                 'customer': customer,
                                 'scheme': vtp_scheme,
                                 'cost': adjusted_cost,
-                                'total_cost': vtp_cost,
                                 'type': 'vtp_expansion',
                                 'vtp_node': vtp_node,  # launch_node就是VTP节点
                                 'vtp_insert_vehicle_id': vtp_insert_vehicle_id,
@@ -938,7 +887,7 @@ class IncrementalALNS:
                             })
                 customer_candidates = [item for item in customer_candidates if item['scheme'] is not None]
                 # 对customer_candidates的cost由小到大排序
-                candidates_plan = sorted(customer_candidates, key=lambda x: x['total_cost'])
+                candidates_plan = sorted(customer_candidates, key=lambda x: x['cost'])
                 
                 # 尝试每个候选方案，直到找到满足约束的方案
                 success = False
@@ -954,7 +903,7 @@ class IncrementalALNS:
                         
                         customer = candidate['customer']
                         best_scheme = candidate['scheme']
-                        best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])  # 这里获得的是路径成本
+                        best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
                         # 使用传统插入方案 - 采用统一的后续处理方式
                         drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
                         
@@ -1147,14 +1096,247 @@ class IncrementalALNS:
                     destroy_node.remove(customer)
                 
                 num_repaired += 1
+        else:
 
+            while len(destroy_node) > 0:
+                # print(f"当前剩余待插入节点: {destroy_node}")
+                
+                # 存储所有节点的插入成本信息
+                all_insertion_costs = []
+            
+                # 获取当前状态的数据
+                vehicle_route = repaired_state.vehicle_routes
+                vehicle_task_data = repaired_state.vehicle_task_data
+                vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
+                
+                # 存储直接插入和启发式交换的候选方案
+                direct_insertion_candidates = []  # 直接插入候选方案
+                heuristic_swap_candidates = []    # 启发式交换候选方案
+                
+                # 遍历所有待插入客户点，计算每个节点的最优插入成本
+                for customer in destroy_node:
+                    min_cost = float('inf')
+                    best_scheme = None
+                    greedy_total_cost = float('inf')
+                    greedy_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                    # 获取所有可行的插入位置
+                    all_insert_position = self.get_all_insert_position(vehicle_route, vehicle_task_data, customer, vehicle_arrive_time)
+                    if all_insert_position is not None:
+                        # 统计该客户点的插入位置总数
+                        total_positions = sum(len(positions) for positions in all_insert_position.values())
+                        # print(f"客户点 {customer} 找到 {total_positions} 个可行插入位置")
+                        # 遍历所有可行插入位置，找到成本最小的方案
+                        for drone_id, inert_positions in all_insert_position.items():
+                            for inert_position in inert_positions:
+                                launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = inert_position
+                                insert_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
+                                if insert_cost < min_cost:
+                                    min_cost = insert_cost
+                                    best_scheme = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
+                                    if customer_node in greedy_customer_plan:
+                                        del greedy_customer_plan[customer_node]
+                                    greedy_customer_plan[customer_node] = best_scheme
+                                    greedy_total_cost = sum(repaired_state.uav_cost.values())
+                    if best_scheme is not None:
+                    # 直接插入模式：记录直接插入方案
+                        direct_insertion_candidates.append({
+                            'customer': customer,
+                            'scheme': best_scheme,
+                            'cost': min_cost,
+                            'total_cost': greedy_total_cost,
+                            'type': 'direct'
+                        })
+                        print(f"客户点 {customer} 直接插入成本: {min_cost:.2f}")
+                    else:
+                        # 启发式交换模式：尝试交换策略（增加成本阈值检查）
+                        print(f"客户点 {customer} 没有直接插入方案，尝试启发式交换策略")
+                        
+                        # 计算当前解的总成本作为基准
+                        current_total_cost = sum(repaired_state.uav_cost.values()) if repaired_state.uav_cost else 0
+                        cost_improvement_threshold = 0.1  # 只有当交换能带来10%以上的成本改善时才进行
+                        # 初始化类
+                        generator = DiverseRouteGenerator(self.node, self.DEPOT_nodeID, self.A_vtp, self.V, self.T, self.vehicle, self.uav_travel, self.veh_distance, self.veh_travel, self.vtp_coords, self.num_clusters, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
+                        
+                        try:
+                            # 通过启发式的贪婪算法插入方案（交换策略）
+                            best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = generator.greedy_insert_feasible_plan(
+                                customer, vehicle_route, vehicle_arrive_time, vehicle_task_data, repaired_state.customer_plan
+                            )
+                            
+                            orig_scheme = (best_orig_y[0], best_orig_y[1], best_orig_y[2], best_orig_y[3], best_orig_y[4], best_orig_y[5])
+                            new_scheme = (best_new_y[0], best_new_y[1], best_new_y[2], best_new_y[3], best_new_y[4], best_new_y[5])
+                            if best_orig_y[2] == customer:
+                                delete_customer = best_new_y[2]
+                            else:
+                                delete_customer = best_orig_y[2]
+                            # 创建临时状态进行约束检查
+                            temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                            delete_task_plan = temp_customer_plan[delete_customer]
+                            del temp_customer_plan[delete_customer]
+                            temp_customer_plan[best_orig_y[2]] = orig_scheme
+                            temp_customer_plan[best_new_y[2]] = new_scheme
+                            temp_customer_cost = {k: v for k, v in repaired_state.uav_cost.items()}
+                            del temp_customer_cost[delete_customer]
+                            temp_customer_cost[best_orig_y[2]] = best_orig_cost
+                            temp_customer_cost[best_new_y[2]] = best_new_cost
+                            temp_cost = sum(temp_customer_cost.values())
+                            temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                            current_cost = sum(repaired_state.uav_cost.values())
+                            heuristic_swap_candidates.append({
+                                'customer': customer,
+                                'orig_scheme': best_orig_y,
+                                'new_scheme': best_new_y,
+                                'orig_cost': best_orig_cost,
+                                'new_cost': best_new_cost,
+                                'total_cost': temp_cost,
+                                'cost': best_orig_cost + best_new_cost,
+                                'orig_plan': best_orig_y_cijkdu_plan,
+                                'new_plan': best_new_y_cijkdu_plan,
+                                'type': 'heuristic_swap'
+                            })
+                            
+                        except Exception as e:
+                            print(f"客户点 {customer} 启发式交换失败: {e}")
+                            print(f"回退到未被破坏的状态，跳过客户点 {customer}")
+                            # 当启发式交换失败时，跳过当前客户点，继续处理其他客户点
+                            print(f'启发式无法找到最优解方案，目标函数值设置为无穷大返回')
+                            repaired_state.repair_objective = float('inf')
+                            # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                            repaired_state.destroyed_customers_info = {}
+                            return repaired_state, insert_plan
+                
+                # 选择最优插入方案
+                all_candidates = direct_insertion_candidates + heuristic_swap_candidates
+                # 删除all_candidates中cost为inf或None的候选解
+                all_candidates = [c for c in all_candidates if c.get('cost') is not None and not math.isinf(c.get('cost', 0))]
+                
+                if not all_candidates:
+                    print("所有剩余节点都没有可行插入方案，修复终止")
+                    return repaired_state, insert_plan
+                best_candidate = min(all_candidates, key=lambda x: x['total_cost'])
+                
+                # 根据方案类型执行不同的插入逻辑
+                if best_candidate['type'] == 'direct':
+                    # 直接插入模式
+                    customer = best_candidate['customer']
+                    best_scheme = best_candidate['scheme']
+                    best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
+                    
+                    # 应用直接插入方案
+                    drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
+                    
+                    # 更新customer_plan
+                    repaired_state.customer_plan[customer_node] = best_scheme
+                    
+                    # 更新uav_assignments
+                    if drone_id not in repaired_state.uav_assignments:
+                        repaired_state.uav_assignments[drone_id] = []
+                    repaired_state.uav_assignments[drone_id].append(best_scheme)
+                    
+                    # 更新uav_cost
+                    if repaired_state.uav_cost is None:
+                        repaired_state.uav_cost = {}
+                    repaired_state.uav_cost[customer_node] = best_cost
+                    
+                    # 更新vehicle_task_data
+                    repaired_state.vehicle_task_data = update_vehicle_task(
+                        repaired_state.vehicle_task_data, best_scheme, vehicle_route
+                    )
+                    
+                    # 记录插入方案
+                    insert_plan.append((customer, best_scheme, best_cost))
+                    if customer in destroy_node:  # 安全检查，避免重复删除
+                        destroy_node.remove(customer)
+                    
+                    # print(f"成功直接插入客户点 {customer}，成本: {best_cost:.2f}")    
+                else:
+                    # 启发式交换模式
+                    customer = best_candidate['customer']
+                    best_orig_y = best_candidate['orig_scheme']
+                    best_new_y = best_candidate['new_scheme']
+                    best_orig_cost = best_candidate['orig_cost']
+                    best_new_cost = best_candidate['new_cost']
+                    best_orig_y_cijkdu_plan = best_candidate['orig_plan']
+                    best_new_y_cijkdu_plan = best_candidate['new_plan']
+                    
+                    # 解析交换方案
+                    orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
+                    new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
+                    
+                    # 确定要移除的客户点
+                    if orig_customer == customer:
+                        remove_customer = new_customer
+                    else:
+                        remove_customer = orig_customer
+                    
+                    # print(f"启发式交换：移除客户点 {remove_customer}，插入客户点 {customer}")
+                    
+                    # 删除被移除的方案
+                    if remove_customer in repaired_state.customer_plan:
+                        y = repaired_state.customer_plan[remove_customer]
+                        del repaired_state.customer_plan[remove_customer]
+                        if repaired_state.uav_cost and remove_customer in repaired_state.uav_cost:
+                            del repaired_state.uav_cost[remove_customer]
+                        
+                        # 从无人机分配中移除
+                        drone_id_remove, _, _, _, _, _ = y
+                        if drone_id_remove in repaired_state.uav_assignments:
+                            repaired_state.uav_assignments[drone_id_remove] = [
+                                task for task in repaired_state.uav_assignments[drone_id_remove]
+                                if task[2] != remove_customer
+                            ]
+                        
+                        vehicle_task_data = remove_vehicle_task(vehicle_task_data, y, vehicle_route)
+                    
+                    # 根据时间优先级选择插入方案
+                    # if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
+                    # 插入新方案
+                    repaired_state.customer_plan[new_customer] = best_new_y
+                    if repaired_state.uav_cost is None:
+                        repaired_state.uav_cost = {}
+                    repaired_state.uav_cost[new_customer] = best_new_cost
+                    
+                    # 更新无人机分配
+                    if new_drone_id not in repaired_state.uav_assignments:
+                        repaired_state.uav_assignments[new_drone_id] = []
+                    repaired_state.uav_assignments[new_drone_id].append(best_new_y)
+                    
+                    # vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                    # final_scheme = best_new_y
+                    # final_cost = best_new_cost
+
+                    repaired_state.customer_plan[remove_customer] = best_orig_y
+                    if repaired_state.uav_cost is None:
+                        repaired_state.uav_cost = {}
+                    repaired_state.uav_cost[remove_customer] = best_orig_cost
+                    if orig_drone_id not in repaired_state.uav_assignments:
+                        repaired_state.uav_assignments[orig_drone_id] = []
+                    repaired_state.uav_assignments[orig_drone_id].append(best_orig_y)
+                    # vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
+                    # vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                    orig_launch_time = repaired_state.rm_empty_vehicle_arrive_time[orig_launch_vehicle][orig_launch_node]
+                    new_launch_time = repaired_state.rm_empty_vehicle_arrive_time[new_launch_vehicle][new_launch_node]
+                    if orig_launch_time <= new_launch_time:
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                    else:
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+
+                    final_scheme = (best_orig_y,best_new_y)
+                    final_cost = best_orig_cost + best_new_cost
+                    
+                    # 记录插入方案
+                    insert_plan.append((customer, final_scheme, final_cost))
+                    if customer in destroy_node:  # 安全检查，避免重复删除
+                        destroy_node.remove(customer)
+                    
+                    print(f"成功启发式交换插入客户点 {customer}，最终成本: {final_cost:.2f}")
+            
         # 更新修复完成后的成本
-        # repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
-        repaired_state._total_cost = repaired_state.win_total_objective()
+        repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
         # 清空破坏信息，确保修复后的状态不包含已修复的破坏节点信息
         repaired_state.destroyed_customers_info = {}
-        print(f'修复策略完成，修复后总成本计算完成')
-        print(f"修复后总成本: {repaired_state._total_cost}")
         
         return repaired_state, insert_plan
 
@@ -1209,16 +1391,6 @@ class IncrementalALNS:
         if force_vtp_mode:
             num_repaired = 0
             while len(destroy_node) > 0:
-                try:
-                    current_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
-                    base_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(
-                        repaired_state.customer_plan, repaired_state.uav_cost, current_arrive_time, 
-                        self.vehicle, self.customer_time_windows_h, 
-                        self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-                    )
-                except Exception:
-                    base_total_cost = float('inf') # 初始状态
-
                 # 计算当轮bonus（与贪婪框架一致，但不改变策略，仅保留变量结构）
                 tactical_multiplier = (num_destroyed - num_repaired) / max(num_destroyed, 1)
                 final_bonus = strategic_bonus * tactical_multiplier * 0.3
@@ -1234,12 +1406,49 @@ class IncrementalALNS:
 
                 for customer in destroy_node:
                     candidates = []
+
                     # 1) 传统插入
-                    traditional_result, is_heuristic_swap = self._regret_evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state)
+                    traditional_result, is_heuristic_swap = self._regret_evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
                     candidates.extend(traditional_result)
+                    # if traditional_result is not None:
+                    #     traditional_cost, traditional_scheme = traditional_result
+                    #     if is_heuristic_swap:
+                    #         candidates.append({
+                    #             'customer': customer,
+                    #             'scheme': traditional_scheme,
+                    #             'cost': traditional_cost,
+                    #             'type': 'heuristic_swap',
+                    #             'vtp_node': None
+                    #         })
+                    #     else:
+                    #         candidates.append({
+                    #             'customer': customer,
+                    #             'scheme': traditional_scheme,
+                    #             'cost': traditional_cost,
+                    #             'type': 'traditional',
+                    #             'vtp_node': None
+                    #         })
                     # 2) VTP扩展插入
                     total_options = self._regret_evaluate_vtp_expansion_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
                     candidates.extend(total_options)
+                    # if vtp_infor is not None:
+                    #     vtp_node = vtp_infor[0]
+                    #     vtp_insert_vehicle_id = vtp_infor[1]
+                    #     vtp_insert_index = vtp_infor[2]
+                    #     if vtp_result is not None:
+                    #         vtp_cost, vtp_scheme = vtp_result
+                    #         adjusted_cost = vtp_cost - final_bonus
+                    #         candidates.append({
+                    #             'customer': customer,
+                    #             'scheme': vtp_scheme,
+                    #             'cost': adjusted_cost,
+                    #             'type': 'vtp_expansion',
+                    #             'vtp_node': vtp_node,
+                    #             'vtp_insert_vehicle_id': vtp_insert_vehicle_id,
+                    #             'vtp_insert_index': vtp_insert_index,
+                    #             'original_cost': vtp_cost
+                    #         })
+
                     # 计算后悔值
                     if len(candidates) == 0:
                         print(f'在regret的修复策略中，客户点{customer}没有可行的插入方案，包括传统插入和VTP扩展插入,跳过')
@@ -1250,24 +1459,24 @@ class IncrementalALNS:
                     # candidates = [c for c in candidates if c.get('eval_cost') is not None and not math.isinf(c.get('eval_cost', 0))]
                     
                     candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])
-                    best_cost = candidates_sorted[0]['total_cost']
+                    best_cost = candidates_sorted[0]['eval_cost']
                     best_type = candidates_sorted[0]['type']
-                    second_best_cost = candidates_sorted[1]['total_cost'] if len(candidates_sorted) >= 2 else best_cost
+                    second_best_cost = candidates_sorted[1]['eval_cost'] if len(candidates_sorted) >= 2 else best_cost
                     second_best_type = candidates_sorted[1]['type'] if len(candidates_sorted) >= 2 else None
-                    # if second_best_type == None:
-                    #     regret_value = 0
-                    # elif best_type and second_best_type == 'vtp_expansion':
-                    #     regret_value = second_best_cost - best_cost
-                    # elif best_type and second_best_type == 'traditional':
-                    #     # regret_value = best_cost - second_best_cost
-                    #     regret_value = second_best_cost - best_cost
-                    # elif best_type == 'vtp_expansion' and second_best_type == 'traditional' or best_type == 'traditional' and second_best_type == 'vtp_expansion':
-                    #     regret_value = second_best_cost - best_cost
-                    # elif best_type == 'heuristic_swap' or second_best_type == 'heuristic_swap':
-                    #     regret_value = candidates_sorted[1]['total_cost'] - candidates_sorted[0]['total_cost']
-                    # else:
-                    #     regret_value = second_best_cost - best_cost
-                    regret_value = second_best_cost - best_cost
+                    if second_best_type == None:
+                        regret_value = 0
+                    elif best_type and second_best_type == 'vtp_expansion':
+                        regret_value = second_best_cost - best_cost
+                    elif best_type and second_best_type == 'traditional':
+                        # regret_value = best_cost - second_best_cost
+                        regret_value = second_best_cost - best_cost
+                    elif best_type == 'vtp_expansion' and second_best_type == 'traditional' or best_type == 'traditional' and second_best_type == 'vtp_expansion':
+                        regret_value = second_best_cost - best_cost
+                    elif best_type == 'heuristic_swap' or second_best_type == 'heuristic_swap':
+                        regret_value = candidates_sorted[1]['total_cost'] - candidates_sorted[0]['total_cost']
+                    else:
+                        regret_value = second_best_cost - best_cost
+                    # regret_value = second_best_cost - best_cost
                     per_customer_candidates[customer] = candidates_sorted
                     regret_list.append({'customer': customer, 'regret': regret_value, 'best_cost': best_cost, 'best_type': best_type, 'second_best_cost': second_best_cost, 'second_best_type': second_best_type})
 
@@ -1432,9 +1641,215 @@ class IncrementalALNS:
                 if not success_any:
                     # 本轮没有任何可行插入，直接终止
                     break
-        repaired_state._total_cost = repaired_state.win_total_objective()
-        print(f'修复策略完成，修复后总成本计算完成')
-        print(f"修复后总成本: {repaired_state._total_cost}")
+        else:
+            # 非VTP强制模式：保持与贪婪分支同构，但采用后悔值选择客户
+            while len(destroy_node) > 0:
+                vehicle_route = repaired_state.vehicle_routes
+                vehicle_task_data = repaired_state.vehicle_task_data
+                vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
+
+                per_customer_info = []
+                direct_buckets = {}
+                swap_buckets = {}
+
+                for customer in destroy_node:
+                    # 直接插入候选（多位置）
+                    all_insert_position = self.get_all_insert_position(vehicle_route, vehicle_task_data, customer, vehicle_arrive_time)
+                    direct_candidates = []
+                    if all_insert_position is not None:
+                        for drone_id, inert_positions in all_insert_position.items():
+                            for inert_position in inert_positions:
+                                launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = inert_position
+                                insert_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
+                                direct_candidates.append({
+                                    'customer': customer,
+                                    'scheme': (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id),
+                                    'cost': insert_cost,
+                                    'type': 'direct'
+                                })
+                    direct_candidates.sort(key=lambda x: x['cost'])
+                    direct_buckets[customer] = direct_candidates
+
+                    if len(direct_candidates) == 0:
+                        # 尝试启发式交换
+                        try:
+                            generator = DiverseRouteGenerator(self.node, self.DEPOT_nodeID, self.A_vtp, self.V, self.T, self.vehicle, self.uav_travel, self.veh_distance, self.veh_travel, self.vtp_coords, self.num_clusters, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
+                            best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = generator.greedy_insert_feasible_plan(
+                                customer, vehicle_route, vehicle_arrive_time, vehicle_task_data, repaired_state.customer_plan
+                            )
+                            orig_scheme = (best_orig_y[0], best_orig_y[1], best_orig_y[2], best_orig_y[3], best_orig_y[4], best_orig_y[5])
+                            new_scheme = (best_new_y[0], best_new_y[1], best_new_y[2], best_new_y[3], best_new_y[4], best_new_y[5])
+                            if best_orig_y[2] == customer:
+                                delete_customer = best_new_y[2]
+                            else:
+                                delete_customer = best_orig_y[2]
+                            # 创建临时状态进行约束检查
+                            temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                            delete_task_plan = temp_customer_plan[delete_customer]
+                            del temp_customer_plan[delete_customer]
+                            temp_customer_plan[best_orig_y[2]] = orig_scheme
+                            temp_customer_plan[best_new_y[2]] = new_scheme
+                            temp_customer_cost = {k: v for k, v in repaired_state.uav_cost.items()}
+                            del temp_customer_cost[delete_customer]
+                            temp_customer_cost[best_orig_y[2]] = best_orig_cost
+                            temp_customer_cost[best_new_y[2]] = best_new_cost
+                            temp_cost = sum(temp_customer_cost.values())
+                            temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                            current_cost = sum(repaired_state.uav_cost.values())
+                            if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                                print(f"启发式交换方案时间约束不满足，尝试下一个候选方案")
+                                continue  
+                            swap_buckets[customer] = {
+                                    'customer': customer,
+                                    'orig_scheme': best_orig_y,
+                                    'new_scheme': best_new_y,
+                                    'orig_cost': best_orig_cost,
+                                    'new_cost': best_new_cost,
+                                    'total_cost': best_orig_cost + best_new_cost,
+                                    'orig_plan': best_orig_y_cijkdu_plan,
+                                    'new_plan': best_new_y_cijkdu_plan,
+                                    'type': 'heuristic_swap'
+                                }
+                            # if best_orig_y is not None and best_new_y is not None:
+                            #     swap_buckets[customer] = {
+                            #         'customer': customer,
+                            #         'orig_scheme': best_orig_y,
+                            #         'new_scheme': best_new_y,
+                            #         'orig_cost': best_orig_cost,
+                            #         'new_cost': best_new_cost,
+                            #         'total_cost': best_orig_cost + best_new_cost,
+                            #         'orig_plan': best_orig_y_cijkdu_plan,
+                            #         'new_plan': best_new_y_cijkdu_plan,
+                            #         'type': 'heuristic_swap'
+                            #     }
+                        except Exception as e:
+                            print(f"客户点 {customer} 启发式交换失败: {e}")
+                            print(f"回退到未被破坏的状态，跳过客户点 {customer}")
+                            # 当启发式交换失败时，跳过当前客户点，继续处理其他客户点
+                            print(f'启发式无法找到最优解方案，目标函数值设置为无穷大返回')
+                            repaired_state.repair_objective = float('inf')
+                            return repaired_state, insert_plan
+
+                    # 计算后悔值
+                    if len(direct_candidates) >= 1:
+                        best_cost = direct_candidates[0]['cost']
+                        # second_best_cost = direct_candidates[1]['cost'] if len(direct_candidates) >= 2 else float('inf')
+                        second_best_cost = direct_candidates[1]['cost'] if len(direct_candidates) >= 2 else best_cost  # 如果只有一种方案，则后悔值为0
+                        regret_value = second_best_cost - best_cost
+                        per_customer_info.append({'customer': customer, 'mode': 'direct', 'regret': regret_value, 'best_cost': best_cost})
+                    elif customer in swap_buckets:
+                        # 没有直接候选但有交换候选，视为高后悔值以优先考虑,设置后悔值为0，之前为float('inf')
+                        per_customer_info.append({'customer': customer, 'mode': 'heuristic_swap', 'regret': 0, 'best_cost': swap_buckets[customer]['total_cost']})
+
+                if not per_customer_info:
+                    print(f'没有可行的插入方案，目标函数值设置为无穷大返回')
+                    repaired_state.repair_objective = float('inf')
+                    # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                    repaired_state.destroyed_customers_info = {}
+                    return repaired_state, insert_plan
+                    # break
+
+                # 选择后悔值最大（若相同选择best_cost较小者）
+                per_customer_info.sort(key=lambda x: (-x['regret'], x['best_cost']))
+
+                inserted = False
+                for info in per_customer_info:
+                    customer = info['customer']
+                    if info['mode'] == 'direct':
+                        for cand in direct_buckets[customer]:
+                            best_scheme = cand['scheme']
+                            # best_cost = cand['cost']
+                            best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
+
+                            # 直接应用（该分支与贪婪一致，无需额外时间可行性检查函数，这里直接更新）
+                            drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
+                            repaired_state.customer_plan[customer_node] = best_scheme
+                            if drone_id not in repaired_state.uav_assignments:
+                                repaired_state.uav_assignments[drone_id] = []
+                            repaired_state.uav_assignments[drone_id].append(best_scheme)
+                            if repaired_state.uav_cost is None:
+                                repaired_state.uav_cost = {}
+                            repaired_state.uav_cost[customer_node] = best_cost
+                            repaired_state.vehicle_task_data = update_vehicle_task(repaired_state.vehicle_task_data, best_scheme, vehicle_route)
+                            insert_plan.append((customer, best_scheme, best_cost))
+                            if customer in destroy_node:
+                                destroy_node.remove(customer)
+                            inserted = True
+                            break
+                        if inserted:
+                            break
+                    else:
+                        # 启发式交换
+                        swap  = swap_buckets.get(customer)
+                        if swap is None:
+                            continue
+                        # 启发式交换模式
+                        customer = swap['customer']
+                        best_orig_y = swap['orig_scheme']
+                        best_new_y = swap['new_scheme']
+                        best_orig_cost = swap['orig_cost']
+                        best_new_cost = swap['new_cost']
+                        best_orig_y_cijkdu_plan = swap['orig_plan']
+                        best_new_y_cijkdu_plan = swap['new_plan']
+                        orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
+                        new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
+
+                        if orig_customer == customer:
+                            remove_customer = new_customer
+                        else:
+                            remove_customer = orig_customer
+                        # 创建临时状态进行约束检查
+                        temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                        delete_task_plan = temp_customer_plan[remove_customer]
+                        del temp_customer_plan[remove_customer]
+                        temp_customer_plan[orig_customer] = best_orig_y
+                        temp_customer_plan[new_customer] = best_new_y
+                        temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                        # if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                        #     print(f"启发式交换方案时间约束不满足，尝试下一个候选方案")
+                        #     continue  
+                        # else:
+                        # 更新customer_plan
+                        # delete_task_plan = repaired_state.customer_plan[remove_customer]
+                        del repaired_state.customer_plan[remove_customer]
+                        repaired_state.customer_plan[orig_customer] = best_orig_y
+
+                        repaired_state.customer_plan[new_customer] = best_new_y
+                        # 更新uav_assignments
+                        if orig_drone_id not in repaired_state.uav_assignments:
+                            repaired_state.uav_assignments[orig_drone_id] = []
+                        repaired_state.uav_assignments[orig_drone_id].append(best_orig_y)
+                        if new_drone_id not in repaired_state.uav_assignments:
+                            repaired_state.uav_assignments[new_drone_id] = []
+                        repaired_state.uav_assignments[new_drone_id].append(best_new_y)
+                        # 更新uav_cost
+                        del repaired_state.uav_cost[remove_customer]
+                        repaired_state.uav_cost[orig_customer] = best_orig_cost
+                        repaired_state.uav_cost[new_customer] = best_new_cost
+                        # 更新vehicle_task_data
+                        vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
+                        # 按照顺序来对应的插入方案，不然会违背约束条件
+                        orig_launch_time = temp_rm_vehicle_arrive_time[orig_launch_vehicle][orig_launch_node]
+                        new_launch_time = temp_rm_vehicle_arrive_time[new_launch_vehicle][new_launch_node]
+                        if orig_launch_time <= new_launch_time:
+                            vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                            vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                        else:
+                            vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                            vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                        # vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                        
+                        final_scheme = (best_orig_y,best_new_y)
+                        final_cost = best_orig_cost + best_new_cost
+                        
+                        # 记录插入方案
+                        insert_plan.append((customer, final_scheme, final_cost))
+                        if customer in destroy_node:  # 安全检查，避免重复删除
+                            destroy_node.remove(customer)
+                        inserted = True
+                        break
+
+        repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
         return repaired_state, insert_plan
 
     def repair_kNN_regret(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
@@ -1460,16 +1875,6 @@ class IncrementalALNS:
         # temp_vtp_task_data = deep_copy_vehicle_task_data(repaired_state.vehicle_task_data)
         if force_vtp_mode:
             while len(destroy_node) > 0:
-                try:
-                    current_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
-                    base_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(
-                        repaired_state.customer_plan, repaired_state.uav_cost, current_arrive_time, 
-                        self.vehicle, self.customer_time_windows_h, 
-                        self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-                    )
-                except Exception:
-                    base_total_cost = float('inf') # 初始状态
-
                 final_bonus = 0.0
                 if force_vtp_mode and len(destroy_node) > 0:
                     tactical_multiplier = (len(destroy_node) - num_repaired) / max(len(destroy_node), 1)
@@ -1510,7 +1915,7 @@ class IncrementalALNS:
                                 cost = scheme[0]
                                 scheme_plan = scheme[1]
                                 candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_new, 'vtp_insert_index': insert_idx, 
-                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost, 'total_cost': cost})
+                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
                     for vtp_shared in used_vtps_set:
                         # 【核心修改】: 为这个共享VTP，在所有【尚未】使用它的车辆中，找到K个最佳插入位置
                         best_shared_positions = self._find_k_best_vehicles_for_shared_vtp(vtp_shared, repaired_state, K_BEST_POSITIONS)
@@ -1525,13 +1930,14 @@ class IncrementalALNS:
                                 vtp_shared, (veh_id, insert_idx), repaired_state, customer, temp_vtp_task_data
                             )
                             for customer, scheme in affected_customers:
-                                cost = scheme[0]  # cost指的是插入成本,包含了时间窗口的惩罚成本
+                                cost = scheme[0]
                                 scheme_plan = scheme[1]
                                 candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_shared, 'vtp_insert_index': insert_idx, 
-                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost, 'total_cost': cost})
+                                'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
                     # 使用传统的candidates方案，改为传统插入测试
                     traditional_options_list, is_heuristic_swap = self._regret_evaluate_traditional_insertion(
-                        customer, vehicle_routes, vehicle_task_data, vehicle_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state)
+                        customer, vehicle_routes, vehicle_task_data, vehicle_arrive_time, repaired_state
+                    )
                     if is_heuristic_swap:
                         for trad_opt in traditional_options_list:
                             if trad_opt['type'] == 'heuristic_swap':
@@ -1545,8 +1951,7 @@ class IncrementalALNS:
                                 'new_scheme': trad_opt['new_scheme'],
                                 'orig_cost': trad_opt['orig_cost'],
                                 'new_cost': trad_opt['new_cost'],
-                                'eval_cost': trad_opt['eval_cost'],
-                                'total_cost': trad_opt['total_cost']
+                                'eval_cost': trad_opt['delta_cost'],
                                 })
                             else:
                                 candidates.append({
@@ -1556,8 +1961,7 @@ class IncrementalALNS:
                                     'vtp_insert_index': None,
                                     'vtp_insert_vehicle_id': None,
                                     'scheme': trad_opt['scheme'],
-                                    'eval_cost': trad_opt['eval_cost'],
-                                    'total_cost': trad_opt['total_cost']
+                                    'eval_cost': trad_opt['eval_cost']
                                 })
                     else:
                         for trad_opt in traditional_options_list:
@@ -1568,21 +1972,19 @@ class IncrementalALNS:
                                 'vtp_insert_index': None,
                                 'vtp_insert_vehicle_id': None,
                                 'scheme': trad_opt['scheme'],
-                                'eval_cost': trad_opt['eval_cost'],
-                                'total_cost': trad_opt['total_cost']
+                                'eval_cost': trad_opt['eval_cost']
                             })
                     # 对candidates中eval_cost为inf的去除
-                    # candidates = [c for c in candidates if not np.isinf(c['eval_cost'])]
-                    candidates = [c for c in candidates if not np.isinf(c['total_cost'])]
+                    candidates = [c for c in candidates if not np.isinf(c['eval_cost'])]
                     # 进一步，对candidates进行排序，按照eval_cost从低到高，选取前K个方案计算其k步后悔值
-                    candidates_sorted = sorted(candidates, key=lambda x: x['total_cost'])[:K_BEST_POSITIONS]
+                    candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])[:K_BEST_POSITIONS]
                     plan_scores = []
                     # for option_tuple in candidates_sorted[:K_BEST_POSITIONS]:
                     # temp_state_after = repaired_state.fast_copy()
                     for option_tuple in candidates_sorted[:]:
                         temp_state_after = repaired_state.temp_fast_copy(vehicles_to_copy=self.T)
                         # 【修正】: 按key取值
-                        current_eval_cost = option_tuple['total_cost']
+                        current_eval_cost = option_tuple['eval_cost']
                         plan_type = option_tuple.get('type', 'traditional') # 安全获取
                         plan_scheme = option_tuple.get('scheme', None)
                         if plan_scheme is None:
@@ -1594,11 +1996,11 @@ class IncrementalALNS:
                         # 只对有重大结构性影响的方案(新增/共享VTP)计算未来影响
                         if plan_type == 'vtp_expansion':
                             future_impact = self._calculate_future_impact(
-                                option_tuple, neigh, repaired_state, temp_state_after, base_total_cost, uav_tw_violation_cost, total_cost_dict
+                                option_tuple, neigh, repaired_state, temp_state_after
                             )
                         else:
                             # 该阶段评估用传统算法插入过程中，对后续任务产生的未来影响
-                            future_impact = self._calculate_tradition_future_impact(option_tuple, neigh, repaired_state, temp_state_after, base_total_cost, uav_tw_violation_cost, total_cost_dict)
+                            future_impact = self._calculate_tradition_future_impact(option_tuple, neigh, repaired_state, temp_state_after)
                         total_kNN_score = current_eval_cost + w_impact * future_impact
                         # 【修正】: 存储 kNN分数 和 完整的【方案字典】
                         plan_scores.append({'kNN_score': total_kNN_score, 'option_dict': option_tuple})
@@ -1738,7 +2140,7 @@ class IncrementalALNS:
         #     print('检查完成')
 
     # 在 IncrementalALNS 类中
-    def _calculate_tradition_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after, base_total_cost, uav_tw_violation_cost, total_cost_dict):
+    def _calculate_tradition_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after):
         """
         【k-step 评估器】(字典修正版)
         估算执行 'option_dict' 对 k_neighbors 修复成本的影响。
@@ -1757,20 +2159,14 @@ class IncrementalALNS:
             # 假设 _evaluate_traditional_insertion 返回一个 options 字典列表
             trad_options, is_heuristic_swap = self._evaluate_traditional_insertion(
                 customer, orig_routes, orig_task_data,
-                orig_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, original_state)
-            if trad_options[0] or trad_options[1] is not None:
-                trad_cost, traditional_scheme = trad_options
+                orig_arrive_time, original_state)
+            if trad_options:
                 if is_heuristic_swap:
-                    # min_real_cost = trad_options[1]['delta_cost']
-                    # costs_before[customer] = min_real_cost
-                    current_total_cost = traditional_scheme['total_cost']
-                    deta_total_cost = traditional_scheme['win_cost']
-                    costs_before[customer] = current_total_cost
+                    min_real_cost = trad_options[1]['delta_cost']
+                    costs_before[customer] = min_real_cost
                 else:
-                    # min_real_cost = trad_options[0] 
-                    # costs_before[customer] = min_real_cost
-                    current_total_cost = trad_cost + base_total_cost
-                    costs_before[customer] = current_total_cost
+                    min_real_cost = trad_options[0] 
+                    costs_before[customer] = min_real_cost
             else:
                 costs_before[customer] = float('inf')
 
@@ -1849,8 +2245,7 @@ class IncrementalALNS:
                 # 更新 uav_cost
                 if temp_state_after.uav_cost is None:
                     temp_state_after.uav_cost = {}
-                # real_cost = option_dict.get('real_cost', option_dict.get('eval_cost'))
-                real_cost = self.drone_insert_cost(scheme[0], scheme[2], scheme[1], scheme[3])
+                real_cost = option_dict.get('real_cost', option_dict.get('eval_cost'))
                 if real_cost is not None:
                     temp_state_after.uav_cost[customer_node] = real_cost
 
@@ -1865,28 +2260,20 @@ class IncrementalALNS:
         # 3. 计算邻居们在【插入后】的新基线成本
         costs_after = {}
         temp_arrive_time = temp_rm_vehicle_arrive_time
-        temp_base_total_cost, temp_uav_tw_violation_cost, temp_total_cost_dict = calculate_window_cost(
-            temp_state_after.customer_plan, temp_state_after.uav_cost, temp_arrive_time, 
-            self.vehicle, self.customer_time_windows_h, 
-            self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-        )
 
         for customer in k_neighbors:
             trad_options_after, is_heuristic_swap = self._evaluate_traditional_insertion(
                 customer, temp_state_after.vehicle_routes, temp_state_after.vehicle_task_data,
-                temp_arrive_time, temp_base_total_cost, temp_uav_tw_violation_cost, temp_total_cost_dict, temp_state_after)
+                temp_arrive_time, temp_state_after)
             if is_heuristic_swap:
-                # min_real_cost = trad_options_after[1]['delta_cost']
-                # costs_after[customer] = min_real_cost
-                current_total_cost = trad_options_after[1]['total_cost']
-                deta_total_cost = trad_options_after[1]['win_cost']
-                costs_after[customer] = current_total_cost
+                min_real_cost = trad_options_after[1]['delta_cost']
+                costs_after[customer] = min_real_cost
             else:
                 if trad_options_after == (None,None):
                     costs_after[customer] = float('inf')
                     continue
                 else:
-                    cost = trad_options_after[0] + temp_base_total_cost
+                    cost = trad_options_after[0]
                     costs_after[customer] = cost
                 
         # 4. 计算总影响 (Cost_After - Cost_Before)
@@ -1899,7 +2286,7 @@ class IncrementalALNS:
 
 
     # 在 IncrementalALNS 类中
-    def _calculate_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after, base_total_cost, uav_tw_violation_cost, total_cost_dict):
+    def _calculate_future_impact(self, option_dict, k_neighbors, original_state, temp_state_after):
         """
         【k-step 评估器】(字典修正版)
         估算执行 'option_dict' 对 k_neighbors 修复成本的影响。
@@ -1918,7 +2305,7 @@ class IncrementalALNS:
             # 假设 _evaluate_traditional_insertion 返回一个 options 字典列表
             trad_options, is_heuristic_swap = self._evaluate_traditional_insertion(
                 customer, orig_routes, orig_task_data,
-                orig_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, original_state)
+                orig_arrive_time, original_state)
             if trad_options:
                 min_real_cost = trad_options[0] 
                 costs_before[customer] = min_real_cost
@@ -1933,7 +2320,6 @@ class IncrementalALNS:
             
             if plan_type == 'vtp_expansion' or plan_type == 'investment' or plan_type == 'sharing':
                 real_cost = option_dict['eval_cost']
-                total_cost = option_dict['total_cost']
                 plan = option_dict['scheme']
                 vtp_node = option_dict['vtp_node']
                 vtp_insert_index = option_dict['vtp_insert_index']
@@ -1941,7 +2327,7 @@ class IncrementalALNS:
             else:
                 print(f"  > 错误: 未知插入方案类型: {plan_type}")
                 return 0      
-            option_to_execute = (real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id, total_cost)
+            option_to_execute = (real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id)
             self._execute_insertion(temp_state_after, option_to_execute)
             
         except Exception as e:
@@ -1951,15 +2337,11 @@ class IncrementalALNS:
         # 3. 计算邻居们在【插入后】的新基线成本
         costs_after = {}
         temp_arrive_time = temp_state_after.calculate_rm_empty_vehicle_arrive_time(temp_state_after.vehicle_routes)
-        base_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(
-                        temp_state_after.customer_plan, temp_state_after.uav_cost, temp_arrive_time, 
-                        self.vehicle, self.customer_time_windows_h, 
-                        self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-                    )
+
         for customer in k_neighbors:
             trad_options_after, is_heuristic_swap = self._evaluate_traditional_insertion(
                 customer, temp_state_after.vehicle_routes, temp_state_after.vehicle_task_data,
-                temp_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, temp_state_after)
+                temp_arrive_time, temp_state_after)
             if is_heuristic_swap:
                 costs_after[customer] = float('inf')
                 continue
@@ -1979,7 +2361,7 @@ class IncrementalALNS:
 
     def _execute_insertion(self, state, option):
         """(辅助函数) 专门用于执行插入方案的函数。"""
-        real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id, total_cost = option
+        real_cost, plan, plan_type, vtp_node, vtp_insert_index, vtp_insert_vehicle_id = option
         drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = plan
         routes = state.vehicle_routes
         task_data = state.vehicle_task_data
@@ -1998,7 +2380,6 @@ class IncrementalALNS:
         task_data[vtp_insert_vehicle_id][vtp_node].launch_drone_list = []
         state.vehicle_task_data = task_data
         arrive_time = state.calculate_rm_empty_vehicle_arrive_time(routes)
-        state.vehicle_arrive_time = arrive_time  # 获得完成节点插入后的更新车辆时间
         state.customer_plan[customer_node] = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
         if drone_id not in state.uav_assignments:
             state.uav_assignments[drone_id] = []
@@ -2011,344 +2392,381 @@ class IncrementalALNS:
         state.vehicle_task_data = task_data
         return True
 
+
+    # def repair_kNN_regret(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
+    #         repaired_state = state.fast_copy()
+    #         repaired_state.repair_objective = 0
+    #         vehicle_routes = repaired_state.vehicle_routes
+    #         vehicle_task_data = repaired_state.vehicle_task_data
+    #         vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_routes)
+    #         destroy_node = list(state.destroyed_customers_info.keys())
+    #         insert_plan = []
+    #         force_vtp_mode = True
+    #         # 从参数中获取基准权重
+    #         W_base_synergy = self.params['W_base_synergy']
+    #         W_base_partner = self.params['W_base_partner']
+    #         k_neighbors = self.params['k_neighbors']
+    #         alpha = self.params['alpha'] # 衰减敏感度
+    #         # tumperature = self.tumperature
+    #         # initial_temperature = self.initial_temperature
+    #         # 计算本轮迭代的“动态权重因子” (1.0 -> 0.0)
+    #         W_dynamic_factor = (self.temperature / self.initial_temperature) ** alpha
+    #         if force_vtp_mode:
+    #             num_repaired = 0
+    #             while len(destroy_node) > 0:
+    #                 per_customer_candidates = {}
+    #                 regret_list = []
+    #                 # candidates = []
+    #                 # 获取所有的VTP节点,包括新的VTP节点以及共享VTP节点，测试在不同的车辆路线上，输出为车辆id，节点id，插入位置
+    #                 all_vtp_nodes = {}
+    #                 candidate_new_vtps = self._get_all_candidate_new_vtps(destroy_node, repaired_state)
+    #                 # K_revest_position = len(candidate_new_vtps)
+    #                 K_revest_position = 20
+    #                 candidates = []
+    #                 for vtp_new in candidate_new_vtps:
+    #                     # 找到插入 vtp_new 的最佳车辆和成本 # best_positions 返回: [(veh_id, insert_idx, veh_delta_cost), ...],尝试插入前几个最优的方案，以防止数据维度爆炸
+    #                     best_positions = self._find_k_best_vehicle_for_new_vtp(vtp_new, repaired_state,K_revest_position)  # 输出的车辆id并非索引而是代号 输出的全部的新vtp节点和插入索引
+    #                     if not best_positions: continue
+    #                     # 【核心修改】: 遍历这K个最佳插入位置，评估每一个的潜力
+    #                     for (veh_id, insert_idx, veh_delta_cost) in best_positions:
+    #                         # 估算总收益
+    #                         total_benefit, affected_customers = self._calculate_vtp_benefits(
+    #                             vtp_new, (veh_id, insert_idx), repaired_state, destroy_node
+    #                         )
+    #                         for customer, scheme in affected_customers:
+    #                             cost = scheme[0]
+    #                             scheme_plan = scheme[1]
+    #                             candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_new, 'vtp_insert_index': insert_idx, 
+    #                             'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
+    #                 # --- 2.2 策略B：评估“共享现有VTP” (Sharing) ---
+    #                 used_vtps_set = {node for route in repaired_state.vehicle_routes for node in route[1:-1]}
+    #                 K_BEST_POSITIONS = 10
+    #                 for vtp_shared in used_vtps_set:
+    #                     # 【核心修改】: 为这个共享VTP，在所有【尚未】使用它的车辆中，找到K个最佳插入位置
+    #                     best_shared_positions = self._find_k_best_vehicles_for_shared_vtp(vtp_shared, repaired_state, K_BEST_POSITIONS)
+
+    #                     if not best_shared_positions: continue
+
+    #                     # 【核心修改】: 遍历这K个最佳共享位置
+    #                     for (veh_id, insert_idx, veh_delta_cost) in best_shared_positions:
+                            
+    #                         # 估算这个“共享方案”带来的总收益
+    #                         total_benefit, affected_customers = self._calculate_vtp_benefits(
+    #                             vtp_shared, (veh_id, insert_idx), repaired_state, destroy_node
+    #                         )
+    #                         for customer, scheme in affected_customers:
+    #                             cost = scheme[0]
+    #                             scheme_plan = scheme[1]
+    #                             candidates.append({'customer': customer, 'type': 'vtp_expansion', 'vtp_node': vtp_new, 'vtp_insert_index': insert_idx, 
+    #                             'vtp_insert_vehicle_id': veh_id, 'scheme': scheme_plan, 'eval_cost': cost})
+    #                 # 在此阶段计算调用VTP的传统插入方案
+    #                 for customer in destroy_node:
+    #                     # [!] 假设: _regret_evaluate_traditional_insertion
+    #                     # 返回一个*列表*，包含所有 (L, C, R) 方案
+    #                     traditional_options_list, is_heuristic_swap = self._regret_evaluate_traditional_insertion(
+    #                         customer, vehicle_routes, vehicle_task_data, vehicle_arrive_time, repaired_state
+    #                     )
+    #                     if is_heuristic_swap:
+    #                         continue
+    #                     for trad_opt in traditional_options_list:
+    #                         candidates.append({
+    #                             'customer': customer,
+    #                             'type': 'traditional',
+    #                             'vtp_node': None, # 传统方案不涉及VTP插入
+    #                             'vtp_insert_index': None,
+    #                             'vtp_insert_vehicle_id': None,
+    #                             'scheme': trad_opt['scheme'],
+    #                             'eval_cost': trad_opt['eval_cost']
+    #                         })
+    #                 if not candidates:
+    #                     print("kNN-Regret: 没有任何候选方案，修复终止。")
+    #                     repaired_state._total_cost = float('inf')
+    #                     return repaired_state, insert_plan
+    #                 # 对candidates进行排序，按照eval_cost从低到高
+    #                 candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])
+    #                 # (A) 转换：将扁平列表 candidates 转换为 "客户中心" 字典
+    #                 # per_customer_candidates = {C1: [opt1, opt2], C2: [opt3], ...}
+    #                 per_customer_candidates = {}
+    #                 for opt in candidates:
+    #                     # 过滤掉无效成本
+    #                     if opt.get('eval_cost') is None or math.isinf(opt.get('eval_cost')):
+    #                         continue
+    #                     cust = opt['customer']
+    #                     if cust not in per_customer_candidates:
+    #                         per_customer_candidates[cust] = []
+    #                     per_customer_candidates[cust].append(opt)
+    #                 # (B) 评分：遍历字典，计算 S-Score, P-Score 和 Total-Score
+    #                 # 获取所有VTP站点的当前状态，用于伙伴分计算
+    #                 all_vtps = used_vtps_set 
+    #                 # 遍历每个客户
+    #                 for customer_id, options_list in per_customer_candidates.items():
+    #                     # 找到该客户的 k 个邻居，仅用于协同分计算，后面需对备用的options_list进行删选
+    #                     neighbors = self._find_k_nearest_unassigned(customer_id, k_neighbors, destroy_node)
+    #                     # 遍历该客户的所有方案
+    #                     for opt in options_list:
+    #                         Cost = opt['eval_cost']
+    #                         S_Score = 0.0
+    #                         P_Score = 0.0
+    #                         # 1. 计算协同分 (Synergy Score)
+    #                         #    只为“VTP拓展”方案计算
+    #                         if opt['type'] == 'vtp_expansion':
+    #                             S_Score = self._calculate_synergy_score(
+    #                                 opt, neighbors, all_vtps, repaired_state, vehicle_task_data,
+    #                             )
+    #                         # 2. 计算伙伴分 (Partner Score)
+    #                         #    所有方案都应计算
+    #                         P_Score = self._calculate_partner_score(
+    #                             opt, all_vtps, repaired_state
+    #                         )
+    #                         # 3. 应用最终公式 (动态权重)
+    #                         opt['total_score'] = Cost - (W_base_synergy * S_Score + W_base_partner * P_Score) * W_dynamic_factor
+
     def noise_regret_insertion(self, state, strategic_bonus=0, num_destroyed=1, force_vtp_mode=False):
-        # 关键修复：必须创建状态副本，避免修改原始状态
-        repaired_state = state.fast_copy()  # 修复：创建真正的副本
-        repaired_state.repair_objective = 0
-        destroy_node = list(state.destroyed_customers_info.keys())  # 总结出了所有的待插入的破坏节点
-        insert_plan = []  # 记录所有破坏节点的最优插入方案
-        # 噪声策略参数
-        rcs_k = 3 # 受限候选集的大小 (建议 3-5)。值越大，随机性越高，搜索范围越广。
-        noise_temperature = 1.0 # 控制概率选择的温度 (可选)，如果使用简单的随机选择则不需要
-        force_vtp_mode = True
-        if force_vtp_mode:
-            num_repaired = 0
-            while len(destroy_node) > 0:
-                # 2. 计算初始状态的全局总成本 (作为基准)
-                try:
-                    current_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
-                    base_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(
-                        repaired_state.customer_plan, repaired_state.uav_cost, current_arrive_time, 
-                        self.vehicle, self.customer_time_windows_h, 
-                        self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-                    )
-                except Exception:
-                    base_total_cost = float('inf') # 初始状态
-                # 计算动态奖励 (随着修复进程，奖励逐渐降低，后期偏向纯贪婪)
-                num_repaired = num_destroyed - len(destroy_node)
-                tactical_multiplier = (len(destroy_node)) / num_destroyed
-                final_bonus = strategic_bonus * tactical_multiplier * 0.3
-                
-                # 获取当前状态引用
-                vehicle_route = repaired_state.vehicle_routes
-                vehicle_task_data = repaired_state.vehicle_task_data
-                vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
-                # final_bonus = 0
-                # 存储所有候选方案
-                all_candidates = []
-                customer_candidates = []
-                global_best_moves = []
-                # 遍历所有待插入客户点，计算每个节点的最优插入成本
-                for customer in destroy_node:
-                    # 1. 首先尝试传统插入方案（使用现有节点）
-                    customer_specific_candidates = []
-                    traditional_result,is_heuristic_swap = self._evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time,base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state)
+            """
+            与后悔值修复保持相同框架（含VTP扩展与统一约束检查），但选择策略改为随机选择：
+            对每个待插入客户，计算其候选方案中(次优成本 - 最优成本)作为后悔值，优先插入后悔值最大的客户，随后引入噪音扰动结果
+            并在其候选方案中按成本从低到高依次尝试，直到满足约束。
+            """
+            repaired_state = state.fast_copy()
+            repaired_state.repair_objective = 0
+            destroy_node = list(state.destroyed_customers_info.keys())
+            insert_plan = []
+            force_vtp_mode = True
+            noise_level = 0.1
+            if force_vtp_mode:
+                num_repaired = 0
+                while len(destroy_node) > 0:
+                    # 计算当轮bonus（与贪婪框架一致，但不改变策略，仅保留变量结构）
+                    tactical_multiplier = (num_destroyed - num_repaired) / max(num_destroyed, 1)
+                    final_bonus = strategic_bonus * tactical_multiplier * 0.3
+                    final_bonus = 0
 
-                    if traditional_result[0] or traditional_result[1] is not None:
-                        traditional_cost, traditional_scheme = traditional_result
-                        if is_heuristic_swap:
-                            # 计算新插入的方案带时间窗及路线的成本
-                            current_total_cost = traditional_scheme['total_cost']
-                            deta_total_cost = traditional_scheme['win_cost']
-                            customer_candidates.append({
-                                'customer': customer,
-                                'scheme': traditional_scheme,
-                                'cost': traditional_cost,
-                                'win_cost': deta_total_cost,
-                                'total_cost': current_total_cost,
-                                'type': 'heuristic_swap',
-                                'vtp_node': None
-                            })
-                        else:
-                            # 计算新插入的方案带时间窗及路线的成本
-                            # win_traditional_cost = calculate_customer_window_cost(traditional_scheme, self.vehicle, current_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                            current_total_cost = traditional_cost + base_total_cost
-                            customer_candidates.append({
-                                'customer': customer,
-                                'scheme': traditional_scheme,
-                                'cost': traditional_cost,
-                                'win_cost': traditional_cost,
-                                'total_cost': current_total_cost,
-                                'type': 'traditional',
-                                'vtp_node': None
-                            })
-                    else:
-                        # 传统插入方案失败，设置成本为无穷大
-                        customer_candidates.append({
-                            'customer': customer,
-                            'scheme': None,
-                            'cost': float('inf'),
-                            'total_cost': float('inf'),
-                            'type': 'traditional',
-                            'vtp_node': None
-                        })
-                    
-                    # 2. 考虑VTP扩展插入方案（为每个客户点考虑新增VTP节点）
-                    vtp_result,vtp_infor = self._evaluate_vtp_expansion_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
-                    # 通过vtp_infor获得插入信息
-                    if vtp_infor is not None:
-                        vtp_node = vtp_infor[0]
-                        vtp_insert_vehicle_id = vtp_infor[1]
-                        vtp_insert_index = vtp_infor[2]
-                        if vtp_result is not None:
-                            vtp_cost, vtp_scheme = vtp_result  # 这里的vtp_cost指的是插入后改变时间的惩罚成本+原本飞行路线+车辆绕行+新插入路线和惩罚成本的总和
-                            # 应用最终奖励来增加VTP插入在前期被选中的概率
-                            adjusted_cost = vtp_cost - final_bonus
-                            
-                            customer_candidates.append({
-                                'customer': customer,
-                                'scheme': vtp_scheme,
-                                'cost': adjusted_cost,
-                                'total_cost': vtp_cost,
-                                'type': 'vtp_expansion',
-                                'vtp_node': vtp_node,  # launch_node就是VTP节点
-                                'vtp_insert_vehicle_id': vtp_insert_vehicle_id,
-                                'vtp_insert_index': vtp_insert_index,
-                                'original_cost': vtp_cost
-                            })
-                    if customer_candidates:
-                        customer_candidates = [item for item in customer_candidates if item['scheme'] is not None]
-                        customer_candidates.sort(key=lambda x: x['total_cost'])
-                        best_move_for_this_customer = customer_candidates[0]
-                        global_best_moves.append(best_move_for_this_customer)
-                    customer_candidates = []
-                if not global_best_moves:
-                    print('在噪声的修复策略中，无法为剩余客户找到任何可行位置')
-                    repaired_state.repair_objective = float('inf')
-                    repaired_state.destroyed_customers_info = {}
-                    return repaired_state, insert_plan
-                global_best_moves.sort(key=lambda x: x['total_cost'])
-                # 2. 使用加权选择构建执行队列
-                # 这比 random.shuffle 靠谱，因为它尊重了成本的物理意义
-                execution_queue = weighted_choice_sub(global_best_moves, rcs_k)
-                
-                # 下面是你原有的执行逻辑，直接复用
-                success = False
+                    vehicle_route = repaired_state.vehicle_routes
+                    vehicle_task_data = repaired_state.vehicle_task_data
+                    vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
 
-                for candidate in execution_queue:
-                    customer = candidate['customer']
-                    # best_scheme = candidate['scheme']
-                    # best_cost = candidate['cost']
-                    
-                    # 根据方案类型执行不同的插入逻辑
-                    if candidate['type'] == 'traditional':
-                        # print(f"尝试使用传统方案插入客户点 {customer}，成本: {best_cost:.2f}")
+                    # 为每个客户构建候选集合并计算后悔值
+                    per_customer_candidates = {}
+                    regret_list = []
+
+                    for customer in destroy_node:
+                        candidates = []
+
+                        # 1) 传统插入
+                        traditional_result, is_heuristic_swap = self._regret_evaluate_traditional_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
+                        candidates.extend(traditional_result)
                         
-                        customer = candidate['customer']
-                        best_scheme = candidate['scheme']
-                        best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])  # 这里获得的是路径成本
-                        # 使用传统插入方案 - 采用统一的后续处理方式
-                        drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
-                        
-                        # 创建临时状态进行约束检查
-                        temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
-                        temp_customer_plan[customer_node] = best_scheme
-                        temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
-                        
-                        # 检查时间约束
-                        if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
-                            print(f"传统方案时间约束不满足，尝试下一个候选方案")
+                        # 2) VTP扩展插入
+                        total_options = self._regret_evaluate_vtp_expansion_insertion(customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state)
+                        candidates.extend(total_options)
+                
+                        # 2.1) 过滤无效候选
+                        valid_candidates = [
+                            c for c in candidates 
+                            if c.get('eval_cost') is not None and not math.isinf(c.get('eval_cost', 0))
+                        ]
+
+                        if not valid_candidates:
+                            print(f'在noisy_regret的修复策略中，客户点{customer}没有可行的插入方案，跳过')
                             continue
                         
-                        # 约束满足，执行插入
-                        # 更新customer_plan
-                        repaired_state.customer_plan[customer_node] = best_scheme
+                        # 2.2) 对所有有效候选方案的 'eval_cost' 施加噪声
+                        for c in valid_candidates:
+                            original_cost = c['eval_cost']
+                            # 施加一个对称的乘法噪声, e.g., noise_level=0.1 -> [0.9, 1.1]
+                            noise_factor = 1 + random.uniform(-noise_level, noise_level)
+                            c['noisy_eval_cost'] = max(0, original_cost * noise_factor)
                         
-                        # 更新uav_assignments
-                        if drone_id not in repaired_state.uav_assignments:
-                            repaired_state.uav_assignments[drone_id] = []
-                        repaired_state.uav_assignments[drone_id].append(best_scheme)
-                        
-                        # 更新uav_cost
-                        if repaired_state.uav_cost is None:
-                            repaired_state.uav_cost = {}
-                        repaired_state.uav_cost[customer_node] = best_cost
-                        
-                        # 更新vehicle_task_data
-                        vehicle_task_data = update_vehicle_task(
-                            vehicle_task_data, best_scheme, vehicle_route
-                        )
-                        
-                        # 记录插入方案
-                        insert_plan.append((customer, best_scheme, best_cost, 'traditional'))
-                        # print(f"成功使用传统方案插入客户点 {customer}，成本: {best_cost:.2f}")
-                        success = True
+                        # candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])
+                        candidates_sorted = sorted(valid_candidates, key=lambda x: x['noisy_eval_cost'])
+                        # best_cost = candidates_sorted[0]['eval_cost']
+                        best_cost = candidates_sorted[0]['noisy_eval_cost']
+                        best_type = candidates_sorted[0]['type']
+                        second_best_cost = candidates_sorted[1]['noisy_eval_cost'] if len(candidates_sorted) >= 2 else best_cost
+                        second_best_type = candidates_sorted[1]['type'] if len(candidates_sorted) >= 2 else None
+                        if second_best_type == None:
+                            regret_value = 0
+                        elif best_type and second_best_type == 'vtp_expansion':
+                            regret_value = second_best_cost - best_cost
+                        elif best_type and second_best_type == 'traditional':
+                            # regret_value = best_cost - second_best_cost
+                            regret_value = second_best_cost - best_cost
+                        elif best_type == 'vtp_expansion' and second_best_type == 'traditional' or best_type == 'traditional' and second_best_type == 'vtp_expansion':
+                            regret_value = second_best_cost - best_cost
+                        elif best_type == 'heuristic_swap' or second_best_type == 'heuristic_swap':
+                            regret_value = candidates_sorted[1]['total_cost'] - candidates_sorted[0]['total_cost']
+                        else:
+                            regret_value = second_best_cost - best_cost
+                        # regret_value = second_best_cost - best_cost
+                        per_customer_candidates[customer] = candidates_sorted
+                        regret_list.append({'customer': customer, 'regret': regret_value, 'best_cost': best_cost, 'best_type': best_type, 'second_best_cost': second_best_cost, 'second_best_type': second_best_type})
+
+                    if not regret_list:
+                        # 无任何客户可行
                         break
-                    # 考虑到启发式的交换策略，因此需要重新设计一种模式来处理其插入方案
-                    elif candidate['type'] == 'heuristic_swap':
-                        best_cost = candidate['cost']
-                        print(f"尝试使用启发式交换方案插入客户点 {customer}，成本: {best_cost:.2f}")
-                        # 使用启发式交换方案 - 采用统一的后续处理方式
-                        orig_scheme = candidate['scheme']['orig_scheme']
-                        new_scheme = candidate['scheme']['new_scheme']
-                        orig_cost = candidate['scheme']['orig_cost']
-                        new_cost = candidate['scheme']['new_cost']
-                        orig_plan = candidate['scheme']['orig_plan']
-                        new_plan = candidate['scheme']['new_plan']
-                        # delete_customer = candidate['customer']
-                        orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = orig_scheme
-                        new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_scheme
-                        customer = new_customer
-                        delete_customer = orig_customer
-                        # delete_task_plan = state.customer_plan[orig_customer]
-                        # 创建临时状态进行约束检查
-                        temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
-                        delete_task_plan = temp_customer_plan[orig_customer]
-                        del temp_customer_plan[orig_customer]
-                        temp_customer_plan[orig_customer] = orig_scheme
-                        temp_customer_plan[new_customer] = new_scheme
-                        temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
-                        if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
-                            print(f"启发式交换方案时间约束不满足，尝试下一个候选方案")
-                            continue  
-                        else:
-                            # 更新customer_plan
-                            del repaired_state.customer_plan[delete_customer]
-                            repaired_state.customer_plan[orig_customer] = orig_scheme
-                            repaired_state.customer_plan[new_customer] = new_scheme
-                            # 更新uav_assignments
-                            if orig_drone_id not in repaired_state.uav_assignments:
-                                repaired_state.uav_assignments[orig_drone_id] = []
-                            repaired_state.uav_assignments[orig_drone_id].append(orig_scheme)
-                            if new_drone_id not in repaired_state.uav_assignments:
-                                repaired_state.uav_assignments[new_drone_id] = []
-                            repaired_state.uav_assignments[new_drone_id].append(new_scheme)
-                            # 更新uav_cost
-                            del repaired_state.uav_cost[delete_customer]
-                            repaired_state.uav_cost[orig_customer] = orig_cost
-                            repaired_state.uav_cost[new_customer] = new_cost
-                            # 更新vehicle_task_data
-                            vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
-                            orig_launch_time = temp_rm_vehicle_arrive_time[orig_launch_vehicle][orig_launch_node]
-                            new_launch_time = temp_rm_vehicle_arrive_time[new_launch_vehicle][new_launch_node]
-                            if orig_launch_time <= new_launch_time:
-                                vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
-                                vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
-                            else:
-                                vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
-                                vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
-                            # vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
-                            # vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
-                            # vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
-                            # 记录插入方案
-                            insert_plan.append((delete_customer, orig_scheme, orig_cost, 'heuristic_swap'))
-                            insert_plan.append((customer, new_scheme, new_cost, 'heuristic_swap'))
-                            success = True
+
+                    # 选择后悔值最大的客户（若相同则选择最小best_cost）
+                    regret_list.sort(key=lambda x: (-x['regret'], x['best_cost']))
+
+                    success_any = False
+                    for entry in regret_list:
+                        customer = entry['customer']
+                        candidates_sorted = per_customer_candidates[customer]
+                        candidates_sorted = [item for item in candidates_sorted if item.get('scheme') is not None]
+                        # 依次尝试候选方案，直到满足约束
+                        for candidate in candidates_sorted:
+                            # best_scheme = candidate['scheme']
+                            # best_cost = candidate['eval_cost']
+
+                            if candidate['type'] == 'traditional':
+                                # 约束检查
+                                best_scheme = candidate['scheme']
+                                customer = best_scheme[2]
+                                best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
+                                temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                                temp_customer_plan[best_scheme[2]] = best_scheme
+                                temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                                if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                                    continue
+
+                                drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
+
+                                repaired_state.customer_plan[customer_node] = best_scheme
+                                if drone_id not in repaired_state.uav_assignments:
+                                    repaired_state.uav_assignments[drone_id] = []
+                                repaired_state.uav_assignments[drone_id].append(best_scheme)
+                                if repaired_state.uav_cost is None:
+                                    repaired_state.uav_cost = {}
+                                repaired_state.uav_cost[customer_node] = best_cost
+                                vehicle_task_data = update_vehicle_task(vehicle_task_data, best_scheme, vehicle_route)
+                                insert_plan.append((customer, best_scheme, best_cost, 'traditional'))
+                                success_any = True
+                                break
+                            elif candidate['type'] == 'heuristic_swap':
+                                print(f"尝试使用启发式交换方案插入客户点 {customer}，成本: {best_cost:.2f}")
+                                # 使用启发式交换方案 - 采用统一的后续处理方式
+                                orig_scheme = candidate['orig_scheme']
+                                new_scheme = candidate['new_scheme']
+                                orig_cost = candidate['orig_cost']
+                                new_cost = candidate['new_cost']
+                                # orig_plan = candidate['scheme']['orig_plan']
+                                # new_plan = candidate['scheme']['new_plan']
+                                # delete_customer = candidate['customer']
+                                temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                                orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = orig_scheme
+                                new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_scheme
+                                customer = orig_customer
+                                delete_task_plan = temp_customer_plan[orig_customer]
+                                delete_customer = orig_customer
+                                # 创建临时状态进行约束检查
+                                del temp_customer_plan[delete_customer]
+                                temp_customer_plan[orig_customer] = orig_scheme
+                                temp_customer_plan[new_customer] = new_scheme
+                                temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(vehicle_route)
+                                if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                                    print(f"启发式交换方案时间约束不满足，尝试下一个候选方案")
+                                    continue  
+                                else:
+                                    # 更新customer_plan
+                                    del repaired_state.customer_plan[delete_customer]
+                                    repaired_state.customer_plan[orig_customer] = orig_scheme
+                                    repaired_state.customer_plan[new_customer] = new_scheme
+                                    # 更新uav_assignments
+                                    if orig_drone_id not in repaired_state.uav_assignments:
+                                        repaired_state.uav_assignments[orig_drone_id] = []
+                                    repaired_state.uav_assignments[orig_drone_id].append(orig_scheme)
+                                    if new_drone_id not in repaired_state.uav_assignments:
+                                        repaired_state.uav_assignments[new_drone_id] = []
+                                    repaired_state.uav_assignments[new_drone_id].append(new_scheme)
+                                    # 更新uav_cost
+                                    del repaired_state.uav_cost[delete_customer]
+                                    repaired_state.uav_cost[orig_customer] = orig_cost
+                                    repaired_state.uav_cost[new_customer] = new_cost
+                                    # 更新vehicle_task_data
+                                    vehicle_task_data = remove_vehicle_task(vehicle_task_data, delete_task_plan, vehicle_route)
+                                    orig_launch_time = repaired_state.rm_empty_vehicle_arrive_time[orig_launch_vehicle][orig_launch_node]
+                                    new_launch_time = repaired_state.rm_empty_vehicle_arrive_time[new_launch_vehicle][new_launch_node]
+                                    if orig_launch_time <= new_launch_time:
+                                        vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
+                                        vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
+                                    else:
+                                        vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
+                                        vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
+                                    # vehicle_task_data = update_vehicle_task(vehicle_task_data, orig_scheme, vehicle_route)
+                                    # vehicle_task_data = update_vehicle_task(vehicle_task_data, new_scheme, vehicle_route)
+                                    # 记录插入方案
+                                    insert_plan.append((delete_customer, orig_scheme, orig_cost, 'heuristic_swap'))
+                                    insert_plan.append((customer, new_scheme, new_cost, 'heuristic_swap'))
+                                    success_any = True
+                                    break
+                            elif candidate['type'] == 'vtp_expansion':
+                                customer = candidate['customer']
+                                vtp_node = candidate['vtp_node']
+                                vtp_insert_index = candidate['vtp_insert_index']
+                                vtp_insert_vehicle_id = candidate['vtp_insert_vehicle_id']
+                                drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = candidate['scheme']
+                                original_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
+
+                                # 临时状态检查
+                                temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
+                                temp_customer_plan[customer_node] = candidate['scheme']
+                                temp_vehicle_route = [route[:] for route in vehicle_route]
+                                temp_route = temp_vehicle_route[vtp_insert_vehicle_id - 1]
+                                temp_route.insert(vtp_insert_index, vtp_node)
+                                temp_vehicle_route[vtp_insert_vehicle_id - 1] = temp_route
+                                repaired_state.temp_vehicle_routes = temp_vehicle_route
+                                temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
+                                if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
+                                    continue
+
+                                # 执行插入
+                                route = vehicle_route[vtp_insert_vehicle_id - 1]
+                                route.insert(vtp_insert_index, vtp_node)
+
+                                last_customer_node = route[vtp_insert_index - 1]
+                                if vtp_insert_index == 1 or last_customer_node == self.DEPOT_nodeID:
+                                    last_drone_list = self.base_drone_assignment[vtp_insert_vehicle_id][:]
+                                else:
+                                    last_drone_list = vehicle_task_data[vtp_insert_vehicle_id][last_customer_node].drone_list[:]
+                                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].drone_list = last_drone_list
+                                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].launch_drone_list = []
+                                vehicle_task_data[vtp_insert_vehicle_id][vtp_node].recovery_drone_list = []
+
+                                vehicle_task_data = update_vehicle_task(vehicle_task_data, candidate['scheme'], vehicle_route)
+
+                                repaired_state.customer_plan[customer_node] = candidate['scheme']
+                                if drone_id not in repaired_state.uav_assignments:
+                                    repaired_state.uav_assignments[drone_id] = []
+                                repaired_state.uav_assignments[drone_id].append(candidate['scheme'])
+                                if repaired_state.uav_cost is None:
+                                    repaired_state.uav_cost = {}
+                                repaired_state.uav_cost[customer_node] = original_cost
+                                repaired_state.rm_empty_vehicle_route = [route[:] for route in repaired_state.vehicle_routes]
+                                repaired_state.rm_empty_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.rm_empty_vehicle_route)
+                                insert_plan.append((customer, candidate['scheme'], original_cost, 'vtp_expansion'))
+                                success_any = True
+                                break
+
+                        if success_any:
+                            if customer in destroy_node:
+                                destroy_node.remove(customer)
+                            num_repaired += 1
                             break
-                    # 开始执行VTP扩展插入方案
-                    elif candidate['type'] == 'vtp_expansion':
-                        # VTP扩展插入方案 - 采用统一的后续处理方式，并额外更新车辆路线
-                        # print(f"尝试使用VTP扩展方案插入客户点 {customer}，成本: {best_cost:.2f}")
-                        customer = candidate['customer']
-                        vtp_node = candidate['vtp_node']
-                        vtp_insert_index = candidate['vtp_insert_index']
-                        vtp_insert_vehicle_id = candidate['vtp_insert_vehicle_id']
-                        best_scheme = candidate['scheme']
-                        # best_cost = self.drone_insert_cost(best_scheme[0], best_scheme[2], best_scheme[1], best_scheme[3])
-                        # original_cost = candidate['original_cost']
-                    
-                        # 1. 首先将VTP节点插入到车辆路径中
-                        # 从方案中提取车辆ID和插入位置
-                        drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = best_scheme
-                        original_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
-
-                        # 2. 创建临时状态进行约束检查
-                        temp_customer_plan = {k: v for k, v in repaired_state.customer_plan.items()}
-                        temp_customer_plan[customer_node] = best_scheme
-                        # 生成临时的车辆路线，避免指向同一对象
-                        temp_vehicle_route = [route[:] for route in vehicle_route]
-                        temp_route = temp_vehicle_route[vtp_insert_vehicle_id - 1]
-                        temp_route.insert(vtp_insert_index, vtp_node)
-                        temp_vehicle_route[vtp_insert_vehicle_id - 1] = temp_route
-                        repaired_state.temp_vehicle_routes = temp_vehicle_route
-                        # 计算临时车辆到达时间
-                        temp_rm_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
-                        
-                        # 3. 检查时间约束
-                        time_feasible = is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time)
-                        
-                        if not time_feasible:
-                            # 时间约束不满足，尝试下一个候选方案
-                            print(f"VTP扩展方案时间约束不满足，尝试下一个候选方案")
-                            continue
                         else:
-                            # 找到VTP节点在路径中的插入位置
-                            route = vehicle_route[vtp_insert_vehicle_id - 1]
+                            print(f'在基于noise_regret的修复策略中，客户点{customer}没有可行的插入方案，跳过，插入方案失败')
+                            repaired_state.repair_objective = float('inf')
+                            # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
+                            repaired_state.destroyed_customers_info = {}
+                            return repaired_state, insert_plan
 
-                            # 更新车辆路线 - VTP方案特有的操作
-                            route.insert(vtp_insert_index, vtp_node)
-                            # 找到上一个客户点更新vehicle_task_data的新插入数据，随后更新
-                            last_customer_node = route[vtp_insert_index - 1]
-                            # 如果索引是1或者前一个节点是起始节点，那么按照初始的无人机分配来
-                            if vtp_insert_index == 1 or last_customer_node == self.DEPOT_nodeID:
-                                last_drone_list = self.base_drone_assignment[vtp_insert_vehicle_id][:]
-                            else:
-                                last_drone_list = vehicle_task_data[vtp_insert_vehicle_id][last_customer_node].drone_list[:]
+                    if not success_any:
+                        # 本轮没有任何可行插入，直接终止
+                        break
 
-                            # last_drone_list = vehicle_task_data[vtp_insert_vehicle_id][last_customer_node].drone_list[:]
-                            vehicle_task_data[vtp_insert_vehicle_id][vtp_node].drone_list = last_drone_list
-                            vehicle_task_data[vtp_insert_vehicle_id][vtp_node].launch_drone_list = []
-                            vehicle_task_data[vtp_insert_vehicle_id][vtp_node].recovery_drone_list = []
+            repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
+            return repaired_state, insert_plan
 
-                            # 更新vehicle_task_data以反映新的VTP节点
-                            vehicle_task_data = update_vehicle_task(vehicle_task_data, best_scheme, vehicle_route)
-                            # 2. 采用统一的后续处理方式
-                            # 更新customer_plan
-                            repaired_state.customer_plan[customer_node] = best_scheme
-                            
-                            # 更新uav_assignments
-                            if drone_id not in repaired_state.uav_assignments:
-                                repaired_state.uav_assignments[drone_id] = []
-                            repaired_state.uav_assignments[drone_id].append(best_scheme)
-                            
-                            # 更新uav_cost
-                            if repaired_state.uav_cost is None:
-                                repaired_state.uav_cost = {}
-                            repaired_state.uav_cost[customer_node] = original_cost
-                            
-                            # 更新vehicle_task_data（VTP方案已经通过_update_vehicle_task_data_for_vtp更新过）
-                            repaired_state.rm_empty_vehicle_route = [route[:] for route in repaired_state.vehicle_routes]
-                            repaired_state.rm_empty_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.rm_empty_vehicle_route)
-                            # 记录插入方案
-                            insert_plan.append((customer, best_scheme, original_cost, 'vtp_expansion'))
-                            # print(f"成功新增VTP节点 {vtp_node} 并插入客户点 {customer}，总成本: {original_cost:.2f}")
-                            success = True
-                            break
-                
-                # 如果所有候选方案都不满足约束，跳过当前客户点
-                if not success:
-                    print(f"客户点 {customer} 的所有候选方案都不满足约束，跳过")
-                    repaired_state.repair_objective = float('inf')
-                    # 清空破坏信息，即使修复失败也要清空，避免影响下一轮迭代
-                    repaired_state.destroyed_customers_info = {}
-                    return repaired_state, insert_plan
-                    # continue
-                
-                # 从待插入列表中移除已处理的客户点
-                if customer in destroy_node:
-                    destroy_node.remove(customer)
-                
-                num_repaired += 1
-                
-        # 更新修复完成后的成本
-        # repaired_state._total_cost = repaired_state.update_calculate_plan_cost(repaired_state.uav_cost, repaired_state.vehicle_routes)
-        repaired_state._total_cost = repaired_state.win_total_objective()
-        # 清空破坏信息，确保修复后的状态不包含已修复的破坏节点信息
-        repaired_state.destroyed_customers_info = {}
-        print(f'修复策略完成，修复后总成本计算完成')
-        print(f"修复后总成本: {repaired_state._total_cost}")
-        
-        return repaired_state, insert_plan
+
 
     def _find_k_best_vehicle_for_new_vtp(self, vtp_new, state, k):
         """
@@ -3307,12 +3725,12 @@ class IncrementalALNS:
 
         # for customer in customers_to_repair:
         customer = customers_to_repair
-        # b. 计算客户 k 使用这个【特定】新VTP的最低成本 (新发旧收/旧发新收)
-        #    这个函数需要在【临时】状态上操作
+            # b. 计算客户 k 使用这个【特定】新VTP的最低成本 (新发旧收/旧发新收)
+            #    这个函数需要在【临时】状态上操作
         vehicle_id = vtp_info[0]
         insert_pos = vtp_info[1]
         vehicle_idx = vehicle_id - 1
-        new_cost, new_scheme = self._calculate_vtp_expansion_cost(customer, vehicle_idx, insert_pos, vehicle_route, vtp_task_data, state, vtp_new)  # 此处返回总成本
+        new_cost, new_scheme = self._calculate_vtp_expansion_cost(customer, vehicle_idx, insert_pos, vehicle_route, vtp_task_data, state, vtp_new)
         # if new_cost == float('inf'):
         #     continue
         
@@ -3907,7 +4325,7 @@ class IncrementalALNS:
         
         return best_customer, best_scheme, best_cost
 
-    def _regret_evaluate_traditional_insertion(self, customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state=None):
+    def _regret_evaluate_traditional_insertion(self, customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state=None):
         """
         评估将 customer 插入到现有VTP网络的所有【直接插入】方案，
         并【尝试】进行启发式交换，将所有评估结果以 options 列表形式返回。
@@ -3933,7 +4351,7 @@ class IncrementalALNS:
         # ----------------------------------------------------------------------
         try:
             all_insert_position = self.get_all_insert_position(vehicle_route, vehicle_task_data, customer, vehicle_arrive_time)
-            insert_plan = {}
+            
             if all_insert_position:
                 for drone_id, inert_positions in all_insert_position.items():
                     for inert_position in inert_positions:
@@ -3948,15 +4366,13 @@ class IncrementalALNS:
                         temp_customer_cost[customer_node] = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
                         temp_total_cost = sum(temp_customer_cost.values())
                         # a. 计算成本
-                        insert_plan[customer_node] = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
                         real_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
-                        real_cost += calculate_customer_window_cost(insert_plan, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                        total_cost = real_cost + base_total_cost
+                        
                         # b. 【重要】在此处加入时间可行性等约束检查
                         #    您需要一个 is_time_feasible 函数来验证这个方案是否可行
                         #    plan_to_check = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
                         #    if is_time_feasible(plan_to_check, vehicle_arrive_time): # 假设需要 arrive_time
-                        insert_plan.pop(customer_node)
+                        
                         if real_cost is not None: # 假设 drone_insert_cost 在不可行时返回 None
                             plan = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
                             
@@ -3965,7 +4381,7 @@ class IncrementalALNS:
                                 'customer': customer,
                                 'eval_cost': real_cost, 
                                 'real_cost': real_cost,
-                                'total_cost': total_cost,
+                                'total_cost': temp_total_cost,
                                 'scheme': plan, 
                                 'type': 'traditional', 
                                 'extra_info': None
@@ -3989,10 +4405,7 @@ class IncrementalALNS:
                 best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = generator.greedy_insert_feasible_plan(
                     customer, vehicle_route, vehicle_arrive_time, vehicle_task_data, repaired_state.customer_plan
                 )
-                orig_customer = best_orig_y[2]
-                new_customer = best_new_y[2]
-                temp_delta_cost = repaired_state.uav_cost[orig_customer]
-                delta_cost = best_orig_cost + best_new_cost - temp_delta_cost  # 单纯的路线差值
+                
                 if best_orig_y is not None and best_new_y is not None:
                     # a. 计算总成本 (移除成本 + 插入成本)
                     real_cost = best_orig_cost + best_new_cost
@@ -4009,22 +4422,19 @@ class IncrementalALNS:
                     temp_customer_cost[orig_customer] = best_orig_cost
                     temp_customer_cost[new_customer] = best_new_cost
                     temp_total_cost = sum(temp_customer_cost.values())
-                    # 计算总成本（移除成本 + 插入成本）
-                    temp_orig_scheme = {}
-                    temp_new_scheme = {}
-                    total_swap_cost = best_orig_cost + best_new_cost
-                    delete_customer = orig_customer
-                    delete_traditional_cost = total_cost_dict.get(delete_customer, 0.0)
-                    traditional_orig_scheme = best_orig_y
-                    temp_orig_scheme[orig_customer] = traditional_orig_scheme
-                    traditional_new_scheme = best_new_y
-                    temp_new_scheme[new_customer] = traditional_new_scheme
-                    traditional_orig_win_cost = total_cost_dict.get(traditional_orig_scheme, 0.0)
-                    orig_cost = calculate_customer_window_cost(temp_orig_scheme, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    new_cost = calculate_customer_window_cost(temp_new_scheme, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    trad_total_cost = orig_cost + new_cost
-                    current_total_cost = base_total_cost - traditional_orig_win_cost + trad_total_cost + best_orig_cost + best_new_cost
-                    deta_total_cost = current_total_cost - base_total_cost
+                    
+                    # b. 将启发式交换的结果打包成一个特殊的 'plan' 字典
+                    #    这样 _execute_insertion 函数才能识别并正确处理它
+                    # plan_dict = {
+                    #     'customer': customer,
+                    #     'orig_scheme': best_orig_y,
+                    #     'new_scheme': best_new_y,
+                    #     'orig_cost': best_orig_cost,
+                    #     'new_cost': best_new_cost,
+                    #     'total_cost': temp_total_cost,
+                    #     'orig_plan_details': best_orig_y_cijkdu_plan, # 保留详细信息
+                    #     'new_plan_details': best_new_y_cijkdu_plan
+                    # }
                     options.append(
                         {
                         'customer': customer,
@@ -4032,16 +4442,33 @@ class IncrementalALNS:
                         'new_scheme': best_new_y,
                         'orig_cost': best_orig_cost,
                         'new_cost': best_new_cost,
-                        'eval_cost': deta_total_cost,
-                        'real_cost': deta_total_cost,
-                        'delta_cost': deta_total_cost,
-                        'total_cost': current_total_cost,
+                        'eval_cost': real_cost,
+                        'real_cost': real_cost,
+                        'delta_cost': best_orig_cost + best_new_cost - temp_delta_cost,
+                        'total_cost': temp_total_cost,
                         'type': 'heuristic_swap', 
                         'extra_info': None,
                         'orig_plan_details': best_orig_y_cijkdu_plan, # 保留详细信息
                         'new_plan_details': best_new_y_cijkdu_plan
                     }
                     )
+                    
+                    # c. 【重要】可选：加入成本改善检查，避免太差的交换方案污染结果
+                    #    current_total_cost = sum(repaired_state.uav_cost.values()) if repaired_state.uav_cost else 0
+                    #    cost_improvement_threshold = 0.1 
+                    #    cost_improvement = (current_total_cost - real_cost) / max(current_total_cost, 1)
+                    #    if cost_improvement >= -cost_improvement_threshold: # 允许少量恶化
+
+                    # eval_cost 等于 real_cost
+                    # options.append({
+                    #     'customer': customer,
+                    #     'eval_cost': real_cost, 
+                    #     'real_cost': real_cost, 
+                    #     'total_cost': temp_total_cost,
+                    #     'scheme': plan_dict, # 存储打包后的字典
+                    #     'type': 'heuristic_swap', 
+                    #     'extra_info': None
+                    # })
                     print(f"    - 找到启发式交换方案，总成本: {real_cost:.2f}")
 
             except Exception as e:
@@ -4052,7 +4479,7 @@ class IncrementalALNS:
         # ----------------------------------------------------------------------
         return options, is_heuristic_swap
 
-    def _evaluate_traditional_insertion(self, customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, base_total_cost, uav_tw_violation_cost, total_cost_dict, repaired_state=None):
+    def _evaluate_traditional_insertion(self, customer, vehicle_route, vehicle_task_data, vehicle_arrive_time, repaired_state=None):
         """
         评估传统插入方案的成本和方案（使用现有节点）
         包括直接插入和启发式插入两种模式
@@ -4062,24 +4489,19 @@ class IncrementalALNS:
         # 1. 首先尝试直接插入方案
         is_heuristic_swap = False
         all_insert_position = self.get_all_insert_position(vehicle_route, vehicle_task_data, customer, vehicle_arrive_time)
-        insert_plan = {}
         if all_insert_position is not None:
             best_scheme = None
             min_cost = float('inf')
             for drone_id, inert_positions in all_insert_position.items():
                 for inert_position in inert_positions:
                     launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id = inert_position
-                    insert_plan[customer_node] = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
                     # 如果发射点和回收点相同，则跳过
                     if launch_node == recovery_node:
                         continue
                     insert_cost = self.drone_insert_cost(drone_id, customer_node, launch_node, recovery_node)
-                    insert_cost += calculate_customer_window_cost(insert_plan, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
                     if insert_cost < min_cost:
                         min_cost = insert_cost
                         best_scheme = (drone_id, launch_node, customer_node, recovery_node, launch_vehicle_id, recovery_vehicle_id)
-                    # 处理测试插入的数据方案
-                    insert_plan.pop(customer_node)
             
             if min_cost != float('inf'):
                 return (min_cost, best_scheme), is_heuristic_swap
@@ -4093,44 +4515,25 @@ class IncrementalALNS:
                     customer, vehicle_route, vehicle_arrive_time, vehicle_task_data, repaired_state.customer_plan
                 )
                 orig_customer = best_orig_y[2]
-                new_customer = best_new_y[2]
                 temp_delta_cost = repaired_state.uav_cost[orig_customer]
                 delta_cost = best_orig_cost + best_new_cost - temp_delta_cost
                 if best_orig_y is not None and best_new_y is not None:
                     # 计算总成本（移除成本 + 插入成本）
-                    temp_orig_scheme = {}
-                    temp_new_scheme = {}
                     total_swap_cost = best_orig_cost + best_new_cost
-                    delete_customer = orig_customer
-                    delete_traditional_cost = total_cost_dict.get(delete_customer, 0.0)
-                    traditional_orig_scheme = best_orig_y
-                    temp_orig_scheme[orig_customer] = traditional_orig_scheme
-                    traditional_new_scheme = best_new_y
-                    temp_new_scheme[new_customer] = traditional_new_scheme
-                    traditional_orig_win_cost = total_cost_dict.get(traditional_orig_scheme, 0.0)
-                    orig_cost = calculate_customer_window_cost(temp_orig_scheme, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    new_cost = calculate_customer_window_cost(temp_new_scheme, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    trad_total_cost = orig_cost + new_cost
-                    current_total_cost = base_total_cost - traditional_orig_win_cost + trad_total_cost + best_orig_cost + best_new_cost
-                    deta_total_cost = current_total_cost - base_total_cost
-
                     heuristic_scheme = {
                                 'customer': customer,
                                 'orig_scheme': best_orig_y,
                                 'new_scheme': best_new_y,
                                 'orig_cost': best_orig_cost,
                                 'new_cost': best_new_cost,
-                                'orig_win_cost': orig_cost,# 没有考虑路线，单纯获得的惩罚成本
-                                'new_win_cost': new_cost,
-                                'total_cost': current_total_cost,
+                                'total_cost': total_swap_cost,
                                 'orig_plan': best_orig_y_cijkdu_plan,
                                 'new_plan': best_new_y_cijkdu_plan,
-                                'win_cost': deta_total_cost,
                                 'delta_cost': delta_cost,
                                 'type': 'heuristic_swap'
                     }
                     # heuristic_scheme['type'] = 'heuristic_scheme'
-                    return (deta_total_cost, heuristic_scheme), True
+                    return (total_swap_cost, heuristic_scheme), True
             except Exception as e:
                 print(f"客户点 {customer} 启发式插入失败: {e}")
         
@@ -4139,6 +4542,7 @@ class IncrementalALNS:
         # return (None,None), False
         return (None,None),False
 
+            
         # except Exception as e:
         #     print(f"客户点 {customer} 传统插入评估失败: {e}")
         #     return None
@@ -4179,17 +4583,17 @@ class IncrementalALNS:
                     vtp_infor[2] = insert_pos
                     options_vtp_infor.append(vtp_infor)
                     options_scheme.append(scheme)
-                    # temp_customer_cost = {k: v for k, v in repaired_state.uav_cost.items()}
-                    # if customer in temp_customer_cost:
-                    #     del temp_customer_cost[customer]
-                    # temp_customer_cost[customer] = result
-                    # temp_total_cost = sum(temp_customer_cost.values())
+                    temp_customer_cost = {k: v for k, v in repaired_state.uav_cost.items()}
+                    if customer in temp_customer_cost:
+                        del temp_customer_cost[customer]
+                    temp_customer_cost[customer] = result
+                    temp_total_cost = sum(temp_customer_cost.values())
                     total_options.append({
                         'customer': customer,
                         'scheme': scheme,
                         'eval_cost': result,
                         'real_cost': result,
-                        'total_cost': result,
+                        'total_cost': temp_total_cost,
                         'type': 'vtp_expansion',
                         'vtp_node': node,
                         'vtp_insert_vehicle_id': vehicle_id+1,
@@ -4226,13 +4630,12 @@ class IncrementalALNS:
             # 获取该车辆路径中不存在的节点（排除已有节点）
             available_nodes = self._get_available_nodes_for_vehicle(vehicle_id, route, repaired_state)
             
-            # 为每个可用节点计算插入成本，并选择成本最低的50个位置
+            # 为每个可用节点计算插入成本，并选择成本最低的3-5个位置
             candidate_positions = self._get_best_insertion_positions(
                 customer, vehicle_id, route, available_nodes, vehicle_route, vehicle_task_data, repaired_state
             )
             # 测试每个候选插入位置,测试的全局无人机的成本情况,该处只挑选了距离车辆节点近的位置进行测试，可添加无人机位置综合评估
             for node, insert_pos in candidate_positions:
-                # 在此阶段中添加插入vtp节点后的时间变化产生的成本变化，插入成本变化，给出优秀得vtp插入策略方案，待修改。
                 result, scheme = self._calculate_vtp_expansion_cost(customer, vehicle_id, insert_pos, vehicle_route, vtp_task_data, repaired_state, node)
                 if result is not None:
                     if result < min_cost:
@@ -4276,8 +4679,7 @@ class IncrementalALNS:
         
         # 按成本排序，选择最低的3-5个位置
         position_costs.sort(key=lambda x: x[2])
-        max_candidates = min(50, len(position_costs))
-        # max_candidates = len(position_costs)
+        max_candidates = min(25, len(position_costs))
         
         return [(node, pos) for node, pos, _ in position_costs[:max_candidates]]
     
@@ -4332,7 +4734,7 @@ class IncrementalALNS:
         """检查是否为车辆节点"""
         return node_id in self.vehicle
     
-    def _calculate_vtp_expansion_cost(self, customer, vehicle_id, insert_pos, vehicle_route, vtp_vehicle_task_data, repaired_state, vtp_node):
+    def _calculate_vtp_expansion_cost(self, customer, vehicle_id, insert_pos, vehicle_route, vtp_vehicle_task_data, repaired_state, vtp_node=None):
         """
         计算VTP扩展插入的成本并返回最优方案
         包括：车辆路径成本增量 + 无人机执行任务成本 + 融合降落成本
@@ -4347,14 +4749,6 @@ class IncrementalALNS:
             # 将vtp节点插入车辆路径中，同时避免指向同一对象
             route.insert(insert_pos, vtp_node)
             all_route[vehicle_idx] = route
-            # 计算临时all_route的到达时间，以及其对应的总体成本
-            temp_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(all_route)
-            # 计算更新完时间的带惩罚成本的所有价值
-            temp_total_cost, temp_uav_tw_violation_cost, temp_total_cost_dict = calculate_window_cost(
-                repaired_state.customer_plan, repaired_state.uav_cost, temp_vehicle_arrive_time, 
-                self.vehicle, self.customer_time_windows_h, 
-                self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node
-            )
             # 查找插如的前一个节点,可继承对应的状态
             prev_node = route[insert_pos - 1]
             if prev_node == self.DEPOT_nodeID or insert_pos == 1:
@@ -4380,14 +4774,14 @@ class IncrementalALNS:
                 # 测试无人机作为发射点的成本
                 if drone_id not in drone_list: # 不在drone_list中，则不测试
                     continue
-                launch_cost,scheme = self._calculate_uav_mission_cost(drone_id, customer, vehicle_id, insert_pos, all_route, vtp_node, vtp_vehicle_task_data, repaired_state,'launch', temp_vehicle_arrive_time)
+                launch_cost,scheme = self._calculate_uav_mission_cost(drone_id, customer, vehicle_id, insert_pos, all_route, vtp_node, vtp_vehicle_task_data, repaired_state,'launch')
                 if launch_cost is not None and launch_cost < min_uav_cost:
                     min_uav_cost = launch_cost
                     best_drone_scheme = (drone_id, customer, vehicle_id, insert_pos, 'launch')
                     best_scheme = scheme
             # 测试无人机作为回收点的成本
             for drone_id in self.V:
-                recovery_cost,scheme = self._calculate_uav_mission_cost(drone_id, customer, vehicle_id, insert_pos, all_route, vtp_node, vtp_vehicle_task_data, repaired_state,'recovery', temp_vehicle_arrive_time)
+                recovery_cost,scheme = self._calculate_uav_mission_cost(drone_id, customer, vehicle_id, insert_pos, all_route, vtp_node, vtp_vehicle_task_data, repaired_state,'recovery')
                 if recovery_cost is not None and recovery_cost < min_uav_cost:
                     min_uav_cost = recovery_cost
                     best_drone_scheme = (drone_id, customer, vehicle_id, insert_pos, 'recovery')
@@ -4397,8 +4791,8 @@ class IncrementalALNS:
         # # 3. 计算融合降落成本
         # landing_cost = self._calculate_landing_cost(customer, vehicle_id, insert_pos, route, best_drone_scheme)
         
-            # 4. 总成本, 涵盖了总体的成本，包含了绕路+未被时间窗口+更新过后的传统成本
-            total_cost = vehicle_cost_increase + min_uav_cost + temp_total_cost
+            # 4. 总成本
+            total_cost = vehicle_cost_increase + min_uav_cost
         
         # # 5. 生成最优方案
         # if vtp_node is None:
@@ -4418,7 +4812,7 @@ class IncrementalALNS:
         except Exception as e:
             return float('inf'), None
     
-    def _calculate_uav_mission_cost(self, drone_id, customer, vehicle_id, insert_pos, route, vtp_node, vtp_vehicle_task_data, repaired_state, mission_type, temp_vehicle_arrive_time):
+    def _calculate_uav_mission_cost(self, drone_id, customer, vehicle_id, insert_pos, route, vtp_node, vtp_vehicle_task_data, repaired_state, mission_type='launch'):
         """
         计算无人机执行任务的成本
         支持无人机作为发射点或回收点的不同成本计算
@@ -4428,14 +4822,14 @@ class IncrementalALNS:
         if vtp_node is None:
             vtp_node = f"vtp_{vehicle_id}_{insert_pos}_{customer}"  # 生成唯一的VTP节点ID
         repaired_state.add_vehicle_route = route
-        vtp_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.add_vehicle_route)  # 其应该与传入的temp_vehicle_arrive_time保持一致
+        vtp_vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.add_vehicle_route)
         # 根据任务类型计算不同的成本
         if mission_type == 'launch':
             # 无人机作为发射点：从VTP节点到客户点
-            cost,scheme = self._calculate_launch_mission_cost(drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id, temp_vehicle_arrive_time)
+            cost,scheme = self._calculate_launch_mission_cost(drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id)
         elif mission_type == 'recovery':
             # 无人机作为回收点：从客户点到VTP节点
-            cost,scheme = self._calculate_recovery_mission_cost(drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id, temp_vehicle_arrive_time)
+            cost,scheme = self._calculate_recovery_mission_cost(drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id)
         else:
             return None
         
@@ -4641,7 +5035,7 @@ class IncrementalALNS:
     #     else:
     #         # print(f"  > 诊断: 无法为无人机 {drone_id} 在节点 {vtp_node} (车辆 {vehicle_id}) 回收找到可行的发射方案。")
     #         return None, None
-    def _calculate_launch_mission_cost(self, drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id, temp_vehicle_arrive_time):
+    def _calculate_launch_mission_cost(self, drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id):
         """
         计算无人机作为发射点的成本（从VTP节点到客户点）
         参考get_all_insert_position函数的规则，考虑同车和跨车两种情况
@@ -4649,8 +5043,6 @@ class IncrementalALNS:
         # try:
         # 获取该客户点的最近VTP节点集合
         customer_vtp_candidates = self.map_cluster_vtp_dict[customer]
-        # 得到临时路线
-        temp_route = [in_route[:] for in_route in route]
         vehicle_idx = vehicle_id -1
         # 找到vtp_node在route中的索引
         route = route[vehicle_idx]
@@ -4659,7 +5051,7 @@ class IncrementalALNS:
         
         min_cost = float('inf')
         best_scheme = None
-        temp_scheme = {}
+        
         # 同车情况：找到下一次无人机发射任务，确定解空间范围
         n = len(route)
         next_launch_idx = n - 1  # 默认到最后一个节点之前
@@ -4694,14 +5086,9 @@ class IncrementalALNS:
             if vtp_node == recovery_node:
                 continue
             # 计算从VTP节点到客户点，再从客户点到回收节点的成本
-            route_cost = self.drone_insert_cost(drone_id, customer, vtp_node, recovery_node)
-            # 在此处计算包含时间窗口惩罚在内的成本计算
-            temp_scheme[customer] = (drone_id, vtp_node, customer, recovery_node, launch_vehicle_id, launch_vehicle_id)
-            win_cost = calculate_customer_window_cost(temp_scheme, self.vehicle, temp_vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-            total_cost = route_cost + win_cost
-            if total_cost is not None and total_cost < min_cost:
-                # min_cost = cost
-                min_cost = total_cost
+            cost = self.drone_insert_cost(drone_id, customer, vtp_node, recovery_node)
+            if cost is not None and cost < min_cost:
+                min_cost = cost
                 best_scheme = (drone_id, vtp_node, customer, recovery_node, launch_vehicle_id, launch_vehicle_id)
 
         # 跨车情况：检查其他车辆的所有可能回收点
@@ -4736,18 +5123,14 @@ class IncrementalALNS:
                 
                 if not conflict:
                     # 计算跨车成本
-                    temp_scheme[customer] = (drone_id, vtp_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id)
-                    win_cost = calculate_customer_window_cost(temp_scheme, self.vehicle, temp_vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    route_cost = self.drone_insert_cost(drone_id, customer, vtp_node, recovery_node)
-                    total_cost = route_cost + win_cost
-                    if total_cost is not None and total_cost < min_cost:
-                        # min_cost = cost
-                        min_cost = total_cost
+                    cost = self.drone_insert_cost(drone_id, customer, vtp_node, recovery_node)
+                    if cost is not None and cost < min_cost:
+                        min_cost = cost
                         best_scheme = (drone_id, vtp_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id)
         
         return min_cost if min_cost != float('inf') else None, best_scheme
         
-    def _calculate_recovery_mission_cost(self, drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id, temp_vehicle_arrive_time):
+    def _calculate_recovery_mission_cost(self, drone_id, vtp_node, customer, route, vtp_vehicle_arrive_time, vtp_vehicle_task_data, repaired_state, vehicle_id):
         """
         计算无人机作为回收点的成本（从客户点到VTP节点）
         遍历所有车辆路线作为发射点，判断是否能将VTP作为回收点
@@ -4763,7 +5146,6 @@ class IncrementalALNS:
         
         min_cost = float('inf')
         best_scheme = None
-        temp_scheme = {}
         
         # 遍历所有车辆路线作为发射点
         for launch_vehicle_idx, launch_route in enumerate(repaired_state.vehicle_routes):
@@ -4803,13 +5185,9 @@ class IncrementalALNS:
                             continue
                         if drone_id in vtp_vehicle_task_data[launch_vehicle_id][launch_node].drone_list:
                              # 计算从发射点到客户点，再从客户点到VTP节点的成本
-                            temp_scheme[customer] = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)
-                            route_cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
-                            win_cost = calculate_customer_window_cost(temp_scheme, self.vehicle, temp_vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                            total_cost = route_cost + win_cost
-                            if total_cost is not None and total_cost < min_cost:
-                                # min_cost = cost
-                                min_cost = total_cost
+                            cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
+                            if cost is not None and cost < min_cost:
+                                min_cost = cost
                                 best_scheme = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)  
                 else:
                     # 遍历从最近回收点到VTP节点的所有节点作为发射点
@@ -4827,13 +5205,9 @@ class IncrementalALNS:
                             continue
                         
                         # 计算从发射点到客户点，再从客户点到VTP节点的成本
-                        temp_scheme[customer] = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)
-                        route_cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
-                        win_cost = calculate_customer_window_cost(temp_scheme, self.vehicle, temp_vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                        total_cost = route_cost + win_cost
-                        if total_cost is not None and total_cost < min_cost:
-                            # min_cost = cost
-                            min_cost = total_cost
+                        cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
+                        if cost is not None and cost < min_cost:
+                            min_cost = cost
                             best_scheme = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)
                 
             # 跨车情况：检查时间约束和冲突
@@ -4860,13 +5234,9 @@ class IncrementalALNS:
                     if has_conflict:
                         continue
                     # 计算跨车成本
-                    temp_scheme[customer] = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)
-                    route_cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
-                    win_cost = calculate_customer_window_cost(temp_scheme, self.vehicle, temp_vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-                    total_cost = route_cost + win_cost
-                    if total_cost is not None and total_cost < min_cost:
-                        # min_cost = cost
-                        min_cost = total_cost
+                    cost = self.drone_insert_cost(drone_id, customer, launch_node, vtp_node)
+                    if cost is not None and cost < min_cost:
+                        min_cost = cost
                         best_scheme = (drone_id, launch_node, customer, vtp_node, launch_vehicle_id, recovery_vehicle_id)
         
         return min_cost if min_cost != float('inf') else None, best_scheme
@@ -5275,8 +5645,8 @@ class IncrementalALNS:
                                 )
                                 
             total_positions = sum(len(positions) for positions in all_insert_position.values())
-            # if total_positions < 5:
-            #     print(f"警告：客户点 {customer} 的可行插入位置过少 ({total_positions} 个)，可能影响优化效果")
+            if total_positions < 5:
+                print(f"警告：客户点 {customer} 的可行插入位置过少 ({total_positions} 个)，可能影响优化效果")
 
             return all_insert_position
 
@@ -5553,23 +5923,11 @@ class IncrementalALNS:
         current_state.rm_empty_vehicle_route, current_state.empty_nodes_by_vehicle = current_state.update_rm_empty_task()
         # current_state.rm_empty_vehicle_route = [route[:] for route in current_state.vehicle_routes]
         current_state.vehicle_routes = [route[:] for route in current_state.rm_empty_vehicle_route]
-        # current_state.destroyed_node_cost = current_state.update_calculate_plan_cost(current_state.uav_cost, current_state.rm_empty_vehicle_route)
-        current_state.destroyed_node_cost = current_state.win_total_objective()
-        print(f"初始解总成本: {current_state.destroyed_node_cost}")
+        current_state.destroyed_node_cost = current_state.update_calculate_plan_cost(current_state.uav_cost, current_state.rm_empty_vehicle_route)
         current_state.rm_empty_vehicle_arrive_time = current_state.calculate_rm_empty_vehicle_arrive_time(current_state.rm_empty_vehicle_route)
-        # current_state.final_uav_plan, current_state.final_uav_cost, current_state.final_vehicle_plan_time, current_state.final_vehicle_task_data, current_state.final_global_reservation_table = current_state.re_update_time(current_state.rm_empty_vehicle_route, current_state.rm_empty_vehicle_arrive_time, current_state.vehicle_task_data)
+        current_state.final_uav_plan, current_state.final_uav_cost, current_state.final_vehicle_plan_time, current_state.final_vehicle_task_data, current_state.final_global_reservation_table = current_state.re_update_time(current_state.rm_empty_vehicle_route, current_state.rm_empty_vehicle_arrive_time, current_state.vehicle_task_data)
         
         best_state = current_state.fast_copy()
-        # 测算best_state中时间窗惩罚成本
-        # best_window_total_cost, best_uav_tw_violation_cost, best_total_cost_dict  = calculate_window_cost(best_state.customer_plan,
-        #                   best_state.uav_cost,
-        #                   best_state.rm_empty_vehicle_arrive_time,
-        #                   self.vehicle,
-        #                   self.customer_time_windows_h,
-        #                   self.early_arrival_cost,
-        #                   self.late_arrival_cost,
-        #                   self.uav_travel,
-        #                   self.node)
         best_objective = current_state.destroyed_node_cost
         # current_state.vehicle_routes = [route.copy() for route in current_state.rm_empty_vehicle_route]
         current_objective = best_objective
@@ -5636,9 +5994,6 @@ class IncrementalALNS:
             # =================================================================
             prev_state = current_state.fast_copy()
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
-            print(f'当前uav_cost个数为:{len(current_state.uav_cost.keys())}')
-            if len(current_state.uav_cost.keys()) < 33:
-                print(f'当前uav_cost为:{current_state.uav_cost}')
             # if current_state.customer_plan[72] == (9,140,72,141,2,2):
             #     print("调试：找到customer_plan[72] == (9,140,72,141,2,2)")
             # if current_state.customer_plan[75] == (11, 133, 75, 114, 3, 1):
@@ -5649,6 +6004,7 @@ class IncrementalALNS:
             #     print("调试：找到customer_plan[73] == (11, 145, 73, 143, 1, 1)")
             # if current_state.customer_plan[82] == (11, 143, 82, 120, 1, 1):
             #     print("调试：找到customer_plan[82] == (11, 143, 82, 120, 1, 1)")
+            
                         # import pdb; pdb.set_trace()
             # prev_objective = current_objective
             if chosen_strategy == 'structural':
@@ -5681,7 +6037,6 @@ class IncrementalALNS:
                     y_cost.append(current_objective) 
                     # 将修复后的状态重置为初始状态
                     repaired_state.repair_objective = 0
-                    current_state = best_state.fast_copy()
                     continue
                 # repaired_state.rm_empty_vehicle_route, repaired_state.empty_nodes_by_vehicle = repaired_state.update_rm_empty_task()
                 # repaired_state.vehicle_routes = [route[:] for route in repaired_state.rm_empty_vehicle_route]
@@ -5721,7 +6076,6 @@ class IncrementalALNS:
                     y_cost.append(current_objective) 
                     # 将修复后的状态重置为初始状态
                     repaired_state.repair_objective = 0
-                    current_state = best_state.fast_copy()
                     continue
                 # repaired_state.rm_empty_vehicle_route, repaired_state.empty_nodes_by_vehicle = repaired_state.update_rm_empty_task()
                 # repaired_state.vehicle_routes = [route[:] for route in repaired_state.rm_empty_vehicle_route]
@@ -5735,8 +6089,7 @@ class IncrementalALNS:
             # =================================================================
             # 步骤 2.3: 评估结果并为本次行动评分
             # =================================================================
-            # new_objective = repaired_state.objective()
-            new_objective = repaired_state.win_total_objective()
+            new_objective = repaired_state.objective()
             score = 0
             accepted = False
             
@@ -5978,11 +6331,11 @@ class IncrementalALNS:
                 
                 # 5. 检查时间约束
                 if not is_time_feasible(temp_customer_plan, temp_rm_vehicle_arrive_time):
-                    # print(f"VTP节点 {vtp_node} 删除后不满足时间约束，跳过删除 (尝试 {attempt_count}/{max_attempts})")
+                    print(f"VTP节点 {vtp_node} 删除后不满足时间约束，跳过删除 (尝试 {attempt_count}/{max_attempts})")
                     continue
                 
                 # 6. 约束满足，执行实际删除操作
-                # print(f"成功破坏VTP节点: 车辆{vehicle_id}的节点{vtp_node} (进度: {destroyed_vtp_count + 1}/{num_to_remove})")
+                print(f"成功破坏VTP节点: 车辆{vehicle_id}的节点{vtp_node} (进度: {destroyed_vtp_count + 1}/{num_to_remove})")
                 
                 # 从车辆路线中移除VTP节点,测试通过，开始正常处理任务
                 new_state.rm_empty_vehicle_route[vehicle_id-1].remove(vtp_node)
@@ -6040,7 +6393,7 @@ class IncrementalALNS:
                                 if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                     new_state.uav_cost.pop(chain_customer_node, None)
                                 
-                                # print(f"VTP链式删除客户点 {chain_customer}")
+                                print(f"VTP链式删除客户点 {chain_customer}")
                                 vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
             
             # 输出破坏策略执行结果
@@ -6189,10 +6542,6 @@ class IncrementalALNS:
         # 清空上一轮迭代的破坏信息，确保每次破坏都是全新的
         new_state.destroyed_customers_info = {}
         current_customers = list(new_state.customer_plan.keys())
-        temp_vehicle_route = [route[:] for route in new_state.vehicle_routes]
-        temp_vehicle_arrive_time = new_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
-        window_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(new_state.customer_plan, new_state.uav_cost, temp_vehicle_arrive_time, self.vehicle, self.customer_time_windows_h, 
-            self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
         vehicle_task_data = new_state.vehicle_task_data
         mode = 'vtp' if force_vtp_mode else 'customer'
         # print(f"  > [破坏模式]: 综合最差破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
@@ -6204,6 +6553,7 @@ class IncrementalALNS:
             # --- 步骤 1: 计算基础效率分数 ---
             # 字典存储每个VTP的指标: {(veh_id, vtp_node): {'score_drone': float, 'score_vehicle': float, 'task_count': int}}
             vtp_metrics = {} 
+
             # 1a. 计算无人机相关指标 (按比例归因)
             # 使用 defaultdict 简化初始化
             vtp_drone_performance = defaultdict(lambda: {'total_cost': 0.0, 'task_count': 0}) 
@@ -6211,34 +6561,37 @@ class IncrementalALNS:
             # 【完整代码】遍历 customer_plan, 计算 cost_leg1, cost_leg2 并正确归因
             for customer, assignment in new_state.customer_plan.items():
                 try:
+                    # 从 assignment 中解包所需信息
                     uav_id, launch_node, _, recovery_node, launch_veh, recovery_veh = assignment
                     
-                    # 【关键修改】获取含惩罚的任务总成本
-                    task_total_cost = total_cost_dict.get(customer, 0.0)
-                    
-                    # 计算物理飞行成本 (仅用于确定分摊比例)
+                    # 获取用于查询成本/距离矩阵的映射索引或键
                     launch_node_map_key = self.node[launch_node].map_key
                     recovery_node_map_key = self.node[recovery_node].map_key
-                    customer_map_key = customer 
+                    customer_map_key = customer # 假设客户ID可以直接用于 uav_travel 查询
+                    
+                    # 获取无人机的单位成本
                     per_cost = self.vehicle[uav_id].per_cost
                     
-                    physical_cost_leg1 = self.uav_travel[uav_id][launch_node_map_key][customer_map_key].totalDistance * per_cost
-                    physical_cost_leg2 = self.uav_travel[uav_id][customer_map_key][recovery_node_map_key].totalDistance * per_cost
-                    total_physical = physical_cost_leg1 + physical_cost_leg2
-                    penalty_cost = uav_tw_violation_cost.get(customer, 0.0)
-                    cost_allocated_launch = physical_cost_leg1 + penalty_cost
-                    cost_allocated_recovery = physical_cost_leg2
+                    # 计算发射段成本 (VTP -> Customer)
+                    # 假设 self.uav_travel 结构是 [uav_id][from_map_key][to_map_key].totalDistance
+                    distance_leg1 = self.uav_travel[uav_id][launch_node_map_key][customer_map_key].totalDistance
+                    cost_leg1 = distance_leg1 * per_cost
                     
-                except Exception as e:
-                    continue 
-                
-                # 归因
+                    # 计算回收段成本 (Customer -> VTP)
+                    distance_leg2 = self.uav_travel[uav_id][customer_map_key][recovery_node_map_key].totalDistance
+                    cost_leg2 = distance_leg2 * per_cost
+                    
+                except (KeyError, AttributeError, TypeError, IndexError) as e:
+                    print(f"  > 警告: 无法为客户 {customer} 任务计算分段成本 ({assignment})，跳过归因。错误: {e}")
+                    continue # 跳过这个任务的成本归因
+                # 将【发射段成本】归因给发射VTP
                 launch_key = (launch_veh, launch_node)
-                vtp_drone_performance[launch_key]['total_cost'] += cost_allocated_launch
+                vtp_drone_performance[launch_key]['total_cost'] += cost_leg1
                 vtp_drone_performance[launch_key]['task_count'] += 1
 
+                # 将【回收段成本】归因给回收VTP
                 recovery_key = (recovery_veh, recovery_node)
-                vtp_drone_performance[recovery_key]['total_cost'] += cost_allocated_recovery
+                vtp_drone_performance[recovery_key]['total_cost'] += cost_leg2
                 vtp_drone_performance[recovery_key]['task_count'] += 1
 
             # 1b. 计算车辆相关指标 (绕路成本) 并合并指标
@@ -6511,7 +6864,7 @@ class IncrementalALNS:
                                 if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                     new_state.uav_cost.pop(chain_customer_node, None)
                                 
-                                # print(f"VTP链式删除客户点 {chain_customer}")
+                                print(f"VTP链式删除客户点 {chain_customer}")
                                 vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
             
             print(f"VTP最差破坏策略完成：成功破坏 {destroyed_vtp_count}/{len(vtps_to_destroy)} 个VTP节点")
@@ -6547,8 +6900,8 @@ class IncrementalALNS:
             # 并计算一个简化的“任务时长”作为时间紧张度的代理指标
 
             for customer in current_customers:
-                # cost = new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0
-                cost = total_cost_dict.get(customer, 0.0)
+                cost = new_state.uav_cost.get(customer, 0) if new_state.uav_cost else 0
+                
                 # a. 指标1: 任务成本 (越高越差)
                 score_cost = cost
                 
@@ -6712,7 +7065,7 @@ class IncrementalALNS:
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
                             from task_data import deep_remove_vehicle_task
-                            # print(f"链式删除客户点 {chain_customer}")
+                            print(f"链式删除客户点 {chain_customer}")
                             vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
 
             # 5. 更新空跑节点等状态
@@ -6784,8 +7137,7 @@ class IncrementalALNS:
         vehicle_task_data = new_state.vehicle_task_data
         mode = 'vtp' if force_vtp_mode else 'customer'
         # print(f"  > [破坏模式]: 综合最差破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
-        mode = 'customer'
-        # mode = 'vtp'
+        # mode = 'customer'
 
         # --- 步骤 1: 识别“最忙”和“最闲”的车辆 ---
         vehicle_load_scores = self._calculate_vehicle_load(new_state)
@@ -6816,163 +7168,74 @@ class IncrementalALNS:
             temp_vehicle_arrive_time = new_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
             window_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(new_state.customer_plan, new_state.uav_cost, temp_vehicle_arrive_time, self.vehicle, self.customer_time_windows_h, 
             self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-
-            # 寻找最忙车辆上表现最差的VTP作为种子
-            vtp_performance = defaultdict(float)
-            for customer, assignment in new_state.customer_plan.items():
-                uav_id, launch_node, _, recovery_node, launch_veh, recovery_veh = assignment
-                    
-                # 只关注最忙车辆上的 VTP
-                if launch_veh != v_max_id or recovery_veh != v_max_id:
-                    continue
-                    
-                task_cost = total_cost_dict.get(customer, 0.0)
-                    
-                # 简单按 50/50 分摊，或者您可以复用之前的按距离比例分摊逻辑
-                # 这里为了计算速度，假设两端对延误的贡献相当
-                if launch_veh == v_max_id:
-                    vtp_performance[(launch_veh, launch_node)] += task_cost * 1.0
-                # if recovery_veh == v_max_id:
-                #     vtp_performance[(recovery_veh, recovery_node)] += task_cost * 0.3
-
-            # 2. 选择“种子 VTP” (Seed)
-            #    优先选择最忙车辆上，归因成本最高的 VTP (即瓶颈节点)
+            # --- 步骤 2: 随机选择“种子VTP” (必须在最忙的车上) ---
             v_max_route_nodes = new_state.vehicle_routes[v_max_id - 1][1:-1]
             if not v_max_route_nodes:
                 print("  > 警告: 最忙车辆没有可破坏的VTP节点。")
                 return new_state
-            # 构建权重
-            weights = []
-            candidates = []
-            for node in v_max_route_nodes:
-                key = (v_max_id, node)
-                # 成本越高，权重越大 (平方放大差异)
-                w = vtp_performance.get(key, 0) ** 2 
-                weights.append(w + 1.0) # +1 防止为0
-                candidates.append(node)
-            probs = np.array(weights) / sum(weights)
-            seed_vtp_node = self.rng.choice(candidates, p=probs)
-            seed_key = (v_max_id, seed_vtp_node)  # 得到种子节点
             
-            seed_node_obj = self.node[seed_vtp_node]
-            seed_pos = (seed_node_obj.latDeg, seed_node_obj.lonDeg)  # 得到种子节点坐标
+            seed_vtp_node = self.rng.choice(v_max_route_nodes)
+            seed_key = (v_max_id, seed_vtp_node)
+            seed_pos = (self.node[seed_vtp_node].latDeg, self.node[seed_vtp_node].lonDeg)
+
+            # --- 步骤 3: 计算所有其他VTP的“重平衡相关性”分数 ---
+            relatedness_scores = []
+            # 收集所有VTP (除了种子)
+            all_other_vtps = [(v_id, node) for v_id, route in enumerate(new_state.vehicle_routes) for node in route[1:-1] if (v_id + 1, node) != seed_key]
             
-            print(f"  > Shaw重平衡(VTP): 种子 VTP {seed_vtp_node} (车辆 {v_max_id}), 归因惩罚: {vtp_performance.get(seed_key, 0):.2f}")
-            # 预计算最大值
+            if not all_other_vtps:
+                return new_state # 只有一个VTP，无法破坏
+
+            # 归一化因子
             max_dist_seed = 0
             max_dist_idle = 0
-            max_badness = 0 # 记录最大的归因成本
-            relatedness_scores = []
-            # 收集所有其他 VTP
-            all_other_vtps = []
-            for v_idx, route in enumerate(new_state.vehicle_routes):
-                vid = v_idx + 1
-                for node in route[1:-1]:
-                    if (vid, node) != seed_key:
-                        all_other_vtps.append((vid, node))
-                        
-            if not all_other_vtps: return new_state
-
-            # --- [Step 1] 第一次遍历：收集原始数据并统计最大值 ---
-            max_dist_seed = 0.0
-            max_dist_idle = 0.0
-            max_badness = 0.0
-            
-            temp_data = []
+            temp_scores = []
             
             for v_id, vtp_node in all_other_vtps:
-                node_obj = self.node[vtp_node]
-                pos = (node_obj.latDeg, node_obj.lonDeg)
+                pos = (self.node[vtp_node].latDeg, self.node[vtp_node].lonDeg)
                 
                 # a. 与种子的地理距离
-                d_seed = math.sqrt((pos[0] - seed_pos[0])**2 + (pos[1] - seed_pos[1])**2)
+                dist_seed = math.sqrt((pos[0] - seed_pos[0])**2 + (pos[1] - seed_pos[1])**2)
+                max_dist_seed = max(max_dist_seed, dist_seed)
                 
                 # b. 与最闲车辆路线的最短距离
-                d_idle = float('inf')
-                if not v_min_positions:
-                    d_idle = 0.0
+                dist_idle = float('inf')
+                if not v_min_positions: # 如果最闲车辆没有VTP
+                    dist_idle = 0 # 设为0或一个中性值
                 else:
                     for idle_pos in v_min_positions:
-                        d_tmp = math.sqrt((pos[0] - idle_pos[0])**2 + (pos[1] - idle_pos[1])**2)
-                        if d_tmp < d_idle: d_idle = d_tmp
+                        dist_idle = min(dist_idle, math.sqrt((pos[0] - idle_pos[0])**2 + (pos[1] - idle_pos[1])**2))
+                max_dist_idle = max(max_dist_idle, dist_idle)
                 
-                # c. 自身的“差劲”程度
-                badness = vtp_performance.get((v_id, vtp_node), 0.0)
-                
-                # 更新全局最大值
-                if d_seed > max_dist_seed: max_dist_seed = d_seed
-                if d_idle > max_dist_idle: max_dist_idle = d_idle
-                if badness > max_badness: max_badness = badness
-                
-                # 暂存原始数据
-                temp_data.append({
-                    'key': (v_id, vtp_node), 
-                    'd_seed': d_seed, 
-                    'd_idle': d_idle, 
-                    'badness': badness
-                })
-            # --- [Step 2] 第二次遍历：使用全局最大值进行归一化和打分 ---
-            w_seed = 0.4  # 聚类性权重
-            w_idle = 0.4  # 转移倾向权重
-            w_bad = 0.2   # 效率倾向权重
-            epsilon = 1e-6 # 防止除以零
-        
-            for item in temp_data:
-                # 现在 max_... 已经是全局最大值了，归一化是公平的
-                norm_d_seed = item['d_seed'] / (max_dist_seed + epsilon)
-                norm_d_idle = item['d_idle'] / (max_dist_idle + epsilon)
-                norm_bad = item['badness'] / (max_badness + epsilon)
-                
-                # 公式：距离越近(小) + 离闲车越近(小) + 越差劲(大 -> 1-x 小)
-                # 目标是分数越低越好
-                score = w_seed * norm_d_seed + w_idle * norm_d_idle + w_bad * (1.0 - norm_bad)
-                
-                relatedness_scores.append({'key': item['key'], 'score': score})
+                temp_scores.append({'key': (v_id, vtp_node), 'dist_seed': dist_seed, 'dist_idle': dist_idle})
 
-            # 4. Top-K 选择并执行破坏
+            # --- 步骤 4: 归一化并计算最终相关性分数 (越低越相关) ---
+            w_seed = 0.6 # 60% 权重给“地理邻近性”
+            w_idle = 0.4 # 40% 权重给“靠近最闲车”
+            
+            for item in temp_scores:
+                norm_dist_seed = item['dist_seed'] / (max_dist_seed + epsilon)
+                norm_dist_idle = item['dist_idle'] / (max_dist_idle + epsilon)
+                
+                # 最终分数：越近越好
+                score_shaw_rebalance = w_seed * norm_dist_seed + w_idle * norm_dist_idle
+                relatedness_scores.append({'key': item['key'], 'score': score_shaw_rebalance})
+
+            # 按“重平衡相关性”分数升序排序
             relatedness_scores.sort(key=lambda x: x['score'])
-            total_available_candidates = len(relatedness_scores) + 1
-            num_to_remove = min(self.vtp_destroy_quantity['shaw'], total_available_candidates) 
             
-            # 3. 构建移除列表
-            # 先加入种子
-            vtps_to_destroy = [seed_key]
+            # --- 步骤 5: 选择目标 ---
+            # num_to_remove = self.vtp_destroy_quantity['shaw'] # e.g., 3
+            num_to_remove = 10 # e.g., 3
+            # num_to_remove = min(num_to_remove, len(active_vtps_keys)+1) # +1 包括种子
             
-            # 计算还需要移除多少个邻居
             num_neighbors_to_remove = num_to_remove - 1
+            vtps_to_destroy = [seed_key]
+            if num_neighbors_to_remove > 0:
+                vtps_to_destroy.extend([item['key'] for item in relatedness_scores[:num_neighbors_to_remove]])
             
-            # 如果还需要移除邻居，且有邻居可选
-            if num_neighbors_to_remove > 0 and relatedness_scores:
-                # --- Top-K 随机选择逻辑 ---
-                
-                # 设定 K 值：我们从前 K 个最相关的邻居中进行选择
-                # K 应该大于等于我们要移除的数量，以提供选择空间
-                K = max(num_neighbors_to_remove + 2, 5) 
-                
-                # 截取前 K 个候选者
-                top_k_candidates = relatedness_scores[:K]
-                
-                # 如果候选者数量刚好等于或少于我们要移除的数量，直接全选
-                if len(top_k_candidates) <= num_neighbors_to_remove:
-                    vtps_to_destroy.extend([item['key'] for item in top_k_candidates])
-                else:
-                    # 否则，进行带权随机选择
-                    # 排名越靠前（索引越小），权重越大
-                    weights = np.arange(len(top_k_candidates), 0, -1)
-                    weight_sum = np.sum(weights)
-                    probs = weights / weight_sum if weight_sum > 0 else None
-                    
-                    # 无放回抽取索引
-                    chosen_indices = self.rng.choice(
-                        len(top_k_candidates), 
-                        size=num_neighbors_to_remove, 
-                        p=probs, 
-                        replace=False
-                    )
-                    
-                    # 添加选中的邻居
-                    vtps_to_destroy.extend([top_k_candidates[i]['key'] for i in chosen_indices])
-            print(f"  > Shaw重平衡(VTP): 计划移除集群: {vtps_to_destroy}")
+            print(f"  > Shaw重平衡: 种子VTP {seed_key}，计划移除集群: {vtps_to_destroy}")
+
 
             # --- 步骤 5: 执行破坏 (包含时间约束检查) ---
             destroyed_customers_info = new_state.destroyed_customers_info 
@@ -7000,8 +7263,8 @@ class IncrementalALNS:
                     print(f"候选池已空，无法继续破坏VTP节点")
                     break
                     
-                vehicle_id, vtp_node = candidate_vtps.pop(0)  # 按优先级顺序选择
-                # vehicle_id = vehicle_index + 1
+                vehicle_index, vtp_node = candidate_vtps.pop(0)  # 按优先级顺序选择
+                vehicle_id = vehicle_index + 1
                 if vtp_node not in new_state.rm_empty_vehicle_route[vehicle_id-1]:
                     # candidate_vtps = [top_k_candidates_keys[attempt_count]]
                     continue
@@ -7110,7 +7373,7 @@ class IncrementalALNS:
                                 if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                     new_state.uav_cost.pop(chain_customer_node, None)
                                 
-                                # print(f"VTP链式删除客户点 {chain_customer}")
+                                print(f"VTP链式删除客户点 {chain_customer}")
                                 vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
             
             print(f"VTP最差破坏策略完成：成功破坏 {destroyed_vtp_count}/{len(vtps_to_destroy)} 个VTP节点")
@@ -7128,111 +7391,86 @@ class IncrementalALNS:
             print("=== VTP破坏阶段完成 ===\n")
         else:
             # 开始执行客户点层面的破坏策略
-            print("  > [破坏模式]: 综合shaw破坏策略")
+            print("  > [破坏模式]: 综合最差破坏 (客户模式 - Pareto)")
         
             # 3.1 收集所有已服务客户
             if not current_customers:
                 print("  > 警告: 没有已服务的客户可供破坏。")
                 return new_state
                 
-            # 1. 预计算：获取包含时间窗惩罚的成本信息
+            # --- 步骤 1: (可选) 计算车辆负载分数 ---
+            #     为了计算“负载相关性”，我们需要知道哪些车辆是繁忙的
+            #     我们复用 _calculate_vehicle_load 辅助函数
             try:
-                temp_vehicle_route = [route[:] for route in new_state.vehicle_routes]
-                temp_vehicle_arrive_time = new_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
-                _, _, total_cost_dict = calculate_window_cost(new_state.customer_plan, new_state.uav_cost, temp_vehicle_arrive_time, self.vehicle, self.customer_time_windows_h, 
-                self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-            except Exception:
-                total_cost_dict = new_state.uav_cost # 退化
+                vehicle_load_scores = self._calculate_vehicle_load(new_state)
+                max_load_score = max(vehicle_load_scores.values()) if vehicle_load_scores else 1.0
+            except Exception as e:
+                print(f"  > 警告: Shaw客户破坏 - 无法计算车辆负载: {e}。负载指标将设为0。")
+                vehicle_load_scores = {}
+                max_load_score = 1.0
 
-            current_customers = list(new_state.customer_plan.keys())
-            if not current_customers: return new_state
+            # --- 步骤 2: 随机选择一个“种子”客户 ---
+            seed_customer = self.rng.choice(current_customers)
+            seed_pos = (self.node[seed_customer].latDeg, self.node[seed_customer].lonDeg)
+            print(f"  > Shaw种子客户: {seed_customer}")
 
-            # ------------------------------------------------------------------
-            # 2. 选择种子客户 (基于惩罚成本的带权随机)
-            #    逻辑：惩罚越高，越是“病灶中心”，越该被选中
-            # ------------------------------------------------------------------
-            weights = []
-            for k in current_customers:
-                # cost 越高，权重越大 (使用平方放大差异)
-                w = total_cost_dict.get(k, 0) ** 2
-                weights.append(w + 1.0)
-                
-            probs = np.array(weights) / sum(weights)
-            seed_customer = self.rng.choice(current_customers, p=probs)
+            # --- 步骤 3: 计算所有其他客户的“智能相关性”分数 ---
+            relatedness_scores_cust = []
+            all_other_customers = [c for c in current_customers if c != seed_customer]
             
-            # 获取种子信息
-            seed_node = self.node[seed_customer]
-            seed_pos = (seed_node.latDeg, seed_node.lonDeg)
-            seed_tw = self.customer_time_windows_h.get(seed_customer)
-            # 解析时间窗 (start, end)
-            s_start = float(seed_tw['ready_h']) if seed_tw else 0.0
-            s_end = float(seed_tw['due_h']) if seed_tw else 24.0
-            
-            print(f"  > 高冲突Shaw破坏: 种子 {seed_customer}, 惩罚成本: {total_cost_dict.get(seed_customer,0):.2f}")
+            if not all_other_customers:
+                print("  > 警告: 只有一个客户，无法执行Shaw破坏。")
+                return new_state # 只有一个客户，无法形成集群
 
-            # ------------------------------------------------------------------
-            # 3. 计算相关性分数 (Score)
-            #    我们要找：离得近 + 时间重叠大 + 自己也烂 的邻居
-            # ------------------------------------------------------------------
-            relatedness_list = []
-            all_other = [c for c in current_customers if c != seed_customer]
-            
-            # 预计算用于归一化的最大值
-            max_dist = 0.0
-            max_penalty = 0.0
-            
-            temp_data = []
-            
-            for k in all_other:
-                # a. 空间距离
-                k_node = self.node[k]
-                d = math.sqrt((k_node.latDeg - seed_pos[0])**2 + (k_node.lonDeg - seed_pos[1])**2)
-                max_dist = max(max_dist, d)
-                
-                # b. 惩罚成本
-                p = total_cost_dict.get(k, 0)
-                max_penalty = max(max_penalty, p)
-                
-                # c. 时间重叠度 (Time Window Overlap)
-                #    Overlap = max(0, min(End1, End2) - max(Start1, Start2))
-                k_tw = self.customer_time_windows_h.get(k)
-                k_start = float(k_tw['ready_h']) if k_tw else 0.0
-                k_end = float(k_tw['due_h']) if k_tw else 24.0
-                
-                overlap = max(0.0, min(s_end, k_end) - max(s_start, k_start))
-                # 归一化重叠：重叠比例 (相对于较短的那个时间窗)
-                # 这样可以避免因时间窗本身很长而导致的虚假高重叠
-                min_len = min(s_end - s_start, k_end - k_start) + 0.01
-                norm_overlap = overlap / min_len # 范围 [0, 1]，1表示完全包含或完全重合
-                
-                temp_data.append({'k': k, 'd': d, 'p': p, 'o': norm_overlap})
-                
-            # 计算分数 (越低越相关)
+            # 归一化因子 (先计算最大值)
+            max_dist = 0
+            max_cost = 0
+            temp_scores_c = []
             epsilon = 1e-6
-            w_dist = 0.4    # 空间越近越好
-            w_overlap = 0.4 # 时间重叠越大越好 (重叠大 -> 冲突大 -> 一起移走)
-            w_penalty = 0.2 # 惩罚越高越好
-            
-            for item in temp_data:
-                n_dist = item['d'] / (max_dist + epsilon)
-                n_penalty = item['p'] / (max_penalty + epsilon)
-                
-                # Score = 距离(正相关) - 重叠(负相关) - 惩罚(负相关)
-                # 我们希望：距离小，重叠大(1.0)，惩罚大(1.0)
-                # score = w_dist * n_dist + w_overlap * (1 - item['o']) + w_penalty * (1 - n_penalty)
-                
-                # 或者更直接的写法：
-                score = w_dist * n_dist - w_overlap * item['o'] - w_penalty * n_penalty
-                
-                relatedness_list.append({'key': item['k'], 'score': score})
 
-            # ------------------------------------------------------------------
-            # 4. Top-K 选择并执行
-            # ------------------------------------------------------------------
-            # 按分数升序排序 (越小越好)
-            relatedness_list.sort(key=lambda x: x['score'])
+            for k in all_other_customers:
+                # a. 地理距离
+                pos_k = (self.node[k].latDeg, self.node[k].lonDeg)
+                dist_k = math.sqrt((pos_k[0] - seed_pos[0])**2 + (pos_k[1] - seed_pos[1])**2)
+                max_dist = max(max_dist, dist_k)
+                
+                # b. 成本指标
+                cost_k = new_state.uav_cost.get(k, 0)
+                max_cost = max(max_cost, cost_k)
+                
+                # c. 车辆负载指标
+                load_k = 0.0
+                try:
+                    assignment_k = new_state.customer_plan[k]
+                    lv_k, rv_k = assignment_k[4], assignment_k[5]
+                    load_k = (vehicle_load_scores.get(lv_k, 0) + vehicle_load_scores.get(rv_k, 0)) / 2.0
+                except (KeyError, IndexError):
+                    pass # 忽略计算错误
+                
+                temp_scores_c.append({'key': k, 'dist': dist_k, 'cost': cost_k, 'load': load_k})
+
+            # --- 步骤 4: 归一化并计算最终相关性分数 (越低越相关) ---
+            # 权重 (超参数，可调)
+            w_dist = 0.5  # 地理邻近性
+            w_cost = 0.3  # 成本相关性
+            w_load = 0.2  # 负载相关性
             
-            # 确定移除数量
+            for item in temp_scores_c:
+                # 归一化 (值越低越相关)
+                norm_dist = item['dist'] / (max_dist + epsilon)
+                # 归一化 (成本越高 -> 值越低 -> 越相关)
+                norm_cost = 1.0 - (item['cost'] / (max_cost + epsilon))
+                # 归一化 (负载越高 -> 值越低 -> 越相关)
+                norm_load = 1.0 - (item['load'] / (max_load_score + epsilon))
+                
+                score_shaw = w_dist * norm_dist + w_cost * norm_cost + w_load * norm_load
+                relatedness_scores_cust.append({'key': item['key'], 'score': score_shaw})
+
+            # --- 步骤 5: Top-K 选择 (选择 k-1 个邻居) ---
+            # 按“智能相关性”分数升序排序
+            relatedness_scores_cust.sort(key=lambda x: x['score'])
+            
+            # 确定破坏数量 (与您原代码一致)
             n = len(current_customers)
             num_to_remove = self.rng.integers(
                 max(1, int(n * self.customer_destroy_ratio[0])),
@@ -7240,18 +7478,14 @@ class IncrementalALNS:
             )
             num_to_remove = min(num_to_remove, n)
             
-            # Top-K 随机选择
+            num_neighbors_to_remove = num_to_remove - 1
+            
+            # 最终移除列表 = 种子 + (k-1)个最相关的邻居
             customers_to_destroy = [seed_customer]
-            if num_to_remove > 1:
-                neighbors_needed = num_to_remove - 1
-                # 候选池大小
-                K_pool = max(neighbors_needed + 5, 10)
-                top_candidates = relatedness_list[:K_pool]
-                
-                # 简单截取或带权随机 (这里简单截取即可，因为分数本身已经包含了复杂的权衡)
-                customers_to_destroy.extend([x['key'] for x in top_candidates[:neighbors_needed]])
+            if num_neighbors_to_remove > 0:
+                customers_to_destroy.extend([item['key'] for item in relatedness_scores_cust[:num_neighbors_to_remove]])
 
-            print(f"  > 计划移除 {len(customers_to_destroy)} 个高冲突聚类客户: {customers_to_destroy}")
+            print(f"  > 计划移除 {len(customers_to_destroy)} 个智能相关客户: {customers_to_destroy}")
 
             # --- 步骤 5: 执行破坏 (与您原有的框架一致) ---
             destroyed_customers_info = new_state.destroyed_customers_info
@@ -7318,7 +7552,7 @@ class IncrementalALNS:
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
                             from task_data import deep_remove_vehicle_task
-                            # print(f"链式删除客户点 {chain_customer}")
+                            print(f"链式删除客户点 {chain_customer}")
                             vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
 
             # 5. 更新空跑节点等状态
@@ -7330,6 +7564,8 @@ class IncrementalALNS:
             print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
             print("=== 破坏阶段完成 ===\n")
         return new_state
+
+
 
     # 最坏节点破坏
     def destroy_worst_removal(self, state, force_vtp_mode = None):
@@ -7371,7 +7607,7 @@ class IncrementalALNS:
             temp_vehicle_arrive_time = new_state.calculate_rm_empty_vehicle_arrive_time(temp_vehicle_route)
             window_total_cost, uav_tw_violation_cost, total_cost_dict = calculate_window_cost(new_state.customer_plan, new_state.uav_cost, temp_vehicle_arrive_time, self.vehicle, self.customer_time_windows_h, 
             self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
-        
+            
             for vehicle_id, route in enumerate(new_state.vehicle_routes):
                 v_id = vehicle_id + 1
                 for vtp_node in route[1:-1]:
@@ -7550,7 +7786,7 @@ class IncrementalALNS:
                                 if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                     new_state.uav_cost.pop(chain_customer_node, None)
                                 
-                                # print(f"VTP链式删除客户点 {chain_customer}")
+                                print(f"VTP链式删除客户点 {chain_customer}")
                                 vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
             
             print(f"VTP最差破坏策略完成：成功破坏 {destroyed_vtp_count}/{len(vtps_to_destroy)} 个VTP节点")
@@ -7562,12 +7798,10 @@ class IncrementalALNS:
             # 更新空跑节点等状态
             new_state.vehicle_routes = [route.copy() for route in new_state.rm_empty_vehicle_route]  # vtp节点被破坏后重更新
             new_state.rm_vehicle_arrive_time = new_state.calculate_rm_empty_vehicle_arrive_time(new_state.vehicle_routes)
-            # new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
-            new_state.destroyed_node_cost = new_state.win_total_objective()
+            new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
             print(f"破坏后剩余VTP节点: {sum(len(route) - 2 for route in new_state.vehicle_routes)}")  # 减去起点和终点
-            # print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
+            print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
             print("=== VTP破坏阶段完成 ===\n")
-            print(f"破坏后总成本: {new_state.destroyed_node_cost}")
         else:
             # 开始执行客户点层面的破坏策略
             # 1. 计算每个客户点的成本
@@ -7648,18 +7882,17 @@ class IncrementalALNS:
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
                             from task_data import deep_remove_vehicle_task
-                            # print(f"链式删除客户点 {chain_customer}")
+                            print(f"链式删除客户点 {chain_customer}")
                             vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
 
             # 5. 更新空跑节点等状态
-            # new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
-            new_state.destroyed_node_cost = new_state.win_total_objective()
+            new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
+            
             # 将破坏的客户节点信息存储到状态中，供修复阶段使用
             new_state.destroyed_customers_info = destroyed_customers_info
             new_state.vehicle_task_data = vehicle_task_data
             print(f"破坏后剩余客户点: {len(new_state.customer_plan)}")
             print("=== 破坏阶段完成 ===\n")
-            print(f"破坏后总成本: {new_state.destroyed_node_cost}")
         return new_state
 
     def destroy_shaw_removal(self, state, force_vtp_mode = None):
@@ -7760,7 +7993,7 @@ class IncrementalALNS:
                         if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                             new_state.uav_cost.pop(chain_customer_node, None)
                         
-                        # print(f"链式删除客户点 {chain_customer}")
+                        print(f"链式删除客户点 {chain_customer}")
 
                 # 更新对应的vehicle_task_data
                 vehicle_task_data = new_state.vehicle_task_data
@@ -7866,7 +8099,7 @@ class IncrementalALNS:
                             if new_state.uav_cost and chain_customer_node in new_state.uav_cost:
                                 new_state.uav_cost.pop(chain_customer_node, None)
                             
-                            # print(f"VTP破坏：链式删除客户点 {chain_customer}")
+                            print(f"VTP破坏：链式删除客户点 {chain_customer}")
                     
                     # 更新vehicle_task_data
                     vehicle_task_data = new_state.vehicle_task_data
@@ -8504,55 +8737,6 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
     #                 best_cost = cost
     #         return best, best_cost
 
-# --- 核心：定义概率选择函数 ---
-def weighted_choice_sub(candidates, k_limit):
-    """
-    从候选列表中，基于排名权重选择一个方案。
-    排名越靠前（成本越低），权重越大。
-    """
-    if not candidates:
-        return None, []
-        
-    # 1. 截断：只看前 K 个
-    limit = min(len(candidates), k_limit)
-    pool = candidates[:limit]
-    backup = candidates[limit:] # 备选池
-    
-    # 2. 计算权重：使用简单的线性排名权重或指数权重
-    # 方案 A (线性): 排名第1权重为K, 第2为K-1...
-    # weights = [limit - i for i in range(limit)]
-    
-    # 方案 B (指数 - 推荐): 强化头部效应，比如 [1.0, 0.5, 0.25...]
-    # 这样能保证大概率选最优，小概率选次优，非常靠谱
-    weights = [math.exp(-0.5 * i) for i in range(limit)]
-    
-    # 3. 归一化并选择
-    total_w = sum(weights)
-    probs = [w / total_w for w in weights]
-    
-    # 按概率随机选择一个索引
-    r = random.random()
-    cumulative_p = 0.0
-    selected_index = 0
-    for i, p in enumerate(probs):
-        cumulative_p += p
-        if r <= cumulative_p:
-            selected_index = i
-            break
-    
-    # 4. 构建尝试队列
-    # 队列顺序：[被选中的那个] + [RCS里剩下的(按原序)] + [备选池]
-    # 这样如果"幸运儿"失败了，我们立刻回退到最稳妥的贪婪顺序
-    
-    chosen_one = pool[selected_index]
-    
-    # 构建剩余的 RCS 成员 (排除被选中的)
-    remaining_pool = [c for i, c in enumerate(pool) if i != selected_index]
-    
-    # 最终执行队列
-    execution_queue = [chosen_one] + remaining_pool + backup
-    
-    return execution_queue
 
 def find_chain_tasks(assignment, customer_plan, vehicle_routes, vehicle_task_data):
     """
@@ -8678,9 +8862,9 @@ def find_chain_tasks(assignment, customer_plan, vehicle_routes, vehicle_task_dat
             unique_tasks.append((customer_id, assignment))
             seen_customers.add(customer_id)
     
-    # print(f"无人机 {drone_id} 的链式删除任务总数: {len(unique_tasks)}")
-    # for customer_id, _ in unique_tasks:
-    #     print(f"  - 客户点 {customer_id}")
+    print(f"无人机 {drone_id} 的链式删除任务总数: {len(unique_tasks)}")
+    for customer_id, _ in unique_tasks:
+        print(f"  - 客户点 {customer_id}")
     
     return unique_tasks
 
