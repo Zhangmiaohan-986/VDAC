@@ -176,6 +176,7 @@ def low_update_time(uav_task_dict, best_uav_plan, best_vehicle_route, vehicle_ta
         detailed_vehicle_task_data = update_delta_time(delta_time, detailed_vehicle_task_data, best_vehicle_route, y_ijkd, vehicle)
     # 根据更新后的detailed_vehicle_task_data，更新best_customer_plan, best_uav_plan
     uav_plan_time = update_uav_plan(detailed_vehicle_task_data, best_uav_plan)  # 更新精确时间的
+    # uav_plan_time = update_uav_plan(detailed_vehicle_task_data, sorted_mission_keys)  # 更新精确时间的
     vehicle_plan_time = update_vehicle_arrive_time(detailed_vehicle_task_data, vehicle_arrival_time)
     # 对uav_plan_time进行排序，按照launch_time排序
     sorted_uav_plan_time = sorted(uav_plan_time.items(), key=lambda item: item[1]['launch_time'])
@@ -476,6 +477,7 @@ class Time_cbs_Batch_Solver:
         self.open_list = []
         self.num_generated = 0
         self.num_expanded = 0
+        self.EPSILON = 1e-4
         
         # 预计算所有节点到所有节点的启发式距离
         self.heuristics = {}
@@ -507,7 +509,8 @@ class Time_cbs_Batch_Solver:
         root_cost = 0
         
         # 对任务排序可以使初始解更稳定
-        sorted_missions = sorted(batch_missions, key=lambda x: x[0][0])
+        # sorted_missions = sorted(batch_missions, key=lambda x: x[0][0])
+        sorted_missions = sorted(batch_missions, key=lambda x: x[1]['launch_time'])
         for mission_tuple, mission_dict in sorted_missions:
             drone_id = mission_tuple[0]
 
@@ -783,88 +786,213 @@ class Time_cbs_Batch_Solver:
         return node
 
     def _plan_full_mission_path(self, mission_tuple, mission_dict, constraints, reservation_table):
-            """
-            为单个无人机规划完整的两段式任务路径 (Launch -> Customer -> Recovery)。
-            """
-            drone_id, launch_node, customer_node, recovery_node, _, _ = mission_tuple
-            service_time = self.node[customer_node].serviceTimeUAV # 假设客户点的服务时间为1个时间单位，可以设为参数
+        """
+        为单个无人机规划完整的两段式任务路径 (Launch -> Customer -> Recovery)。
+        """
+        drone_id, launch_node, customer_node, recovery_node, _, _ = mission_tuple
+        service_time = self.node[customer_node].serviceTimeUAV # 假设客户点的服务时间为1个时间单位
 
-            # ------------------
-            # 路径第一段: 发射点 -> 客户点
-            # ------------------
-            climb_altitude = abs(self.node[launch_node].map_position[2] - self.node[launch_node].position[2])
-            climb_time = climb_altitude / self.vehicle[drone_id].takeoffSpeed
-            path1 = self.spatio_temporal_a_star(
-                self.G_air,
-                self.node[launch_node].map_key,  # 使用原始节点ID
-                customer_node,
-                mission_dict['launch_time'] + climb_time,  # 更新精确的无人机到达空中节点的时间状况
-                self.heuristics[customer_node], # 启发函数需要目标是客户点
-                constraints,
-                reservation_table,
-                drone_id
-            )
-
-            if not path1:
-                print(f"找不到可行路径！Debug: Path1 failed for {drone_id}")
-                return None, None # 第一段就找不到路
+        # =========================================================
+        # 【新增修正 1】：动态调整发射时间 (解决发射点堵塞问题)
+        # =========================================================
+        adjusted_launch_time = mission_dict['launch_time']
+        
+        # 获取 launch node 的 map key，确保查找的是空中节点
+        launch_air_node = self.node[launch_node].map_key
+        
+        # 查找 launch_air_node 上的预留信息
+        launch_intervals = reservation_table.get(launch_air_node, [])
+        
+        # 按时间排序，便于检查
+        launch_intervals.sort(key=lambda x: x['start']) 
+        
+        for interval in launch_intervals:
+            # 跳过本无人机自己的预留
+            if interval['drone_id'] == drone_id: continue
             
-            # 1. 计算各项时间
-            arrival_time_in_air = path1[-1][1]  # 到达客户点上空，准备降落的时刻
-
-            # 计算降落耗时
-            land_altitude = abs(self.node[customer_node].map_position[2] - self.node[customer_node].position[2])
-            land_duration = land_altitude / self.vehicle[drone_id].landingSpeed
+            # 检查预期的发射时间是否落在其他无人机的占用区间 [start, end)
+            # 使用 self.EPSILON 进行浮点数比较，避免边界问题
+            if interval['start'] <= adjusted_launch_time < interval['end'] - self.EPSILON:
+                # 冲突！将发射时间推迟到冲突结束之后
+                print(f"[CBS Launch Delay] Drone {drone_id} launch delayed from {adjusted_launch_time:.4f} to {interval['end']:.4f} due to Drone {interval['drone_id']} at node {launch_air_node}.")
+                adjusted_launch_time = interval['end'] + self.EPSILON # 推迟到结束时间 + 极小缓冲
             
-            # 计算爬升耗时
-            climb_duration = land_altitude / self.vehicle[drone_id].takeoffSpeed
+            # 由于间隔已排序，如果当前发射时间晚于当前间隔的结束，可以跳过后续检查（假设间隔不重叠）
+            if adjusted_launch_time < interval['start']:
+                break
 
-            # 计算第二段路径的真正起飞时刻
-            # 起飞时刻 = 空中到达时刻 + 降落耗时 + 地面服务耗时 + 爬升耗时
-            departure_time_for_path2 = arrival_time_in_air + land_duration + service_time + climb_duration
+        current_launch_time = adjusted_launch_time
+        
+        # ------------------
+        # 路径第一段: 发射点 -> 客户点
+        # ------------------
+        climb_altitude = abs(self.node[launch_node].map_position[2] - self.node[launch_node].position[2])
+        climb_time = climb_altitude / self.vehicle[drone_id].takeoffSpeed
+        
+        # A* 搜索的开始时间：修正后的发射时间 + 爬升到空中节点的时间
+        path1_start_time = current_launch_time + climb_time
+        
+        path1_start_node = self.node[launch_node].map_key # 空中节点
+        
+        # =========================================================
+        # 【修正 2】：A* 调用使用动态调整后的时间
+        # =========================================================
+        path1 = self.spatio_temporal_a_star(
+            self.G_air,
+            path1_start_node, 
+            customer_node,
+            path1_start_time,  # 使用修正后的启动时间
+            self.heuristics[customer_node], 
+            constraints,
+            reservation_table,
+            drone_id
+        )
 
-            # 注意：这里我们应该调用统一的、精确的更新函数来完成
-            # reservation_table = self._update_reservation_table_with_path(reservation_table, path1, drone_id, mission_tuple)
-            self._update_reservation_table_with_path(reservation_table, path1, drone_id, mission_tuple)
-            # 2. 为第二段路径准备一个高度精确的临时预留表
-            temp_reservation_table = copy.copy(reservation_table)
+        if not path1:
+            print(f"找不到可行路径！Debug: Path1 failed for {drone_id}")
+            return None, None # 第一段就找不到路
+        
+        # 1. 计算各项时间
+        arrival_time_in_air = path1[-1][1] 
+
+        # 计算降落耗时
+        land_altitude = abs(self.node[customer_node].map_position[2] - self.node[customer_node].position[2])
+        land_duration = land_altitude / self.vehicle[drone_id].landingSpeed
+        
+        # 计算爬升耗时
+        climb_duration = land_altitude / self.vehicle[drone_id].takeoffSpeed
+
+        # 计算第二段路径的真正起飞时刻
+        # 起飞时刻 = 空中到达时刻 + 降落耗时 + 地面服务耗时 + 爬升耗时
+        departure_time_for_path2 = arrival_time_in_air + land_duration + service_time + climb_duration
+
+        # 更新预留表
+        self._update_reservation_table_with_path(reservation_table, path1, drone_id, mission_tuple)
+        
+        # 2. 为第二段路径准备一个高度精确的临时预留表
+        temp_reservation_table = copy.copy(reservation_table)
+        
+        # 为第二段路径创建一个临时的预留表，包含服务时间
+        if customer_node not in temp_reservation_table:
+            temp_reservation_table[customer_node] = []
             
-            # 为第二段路径创建一个临时的预留表，包含第一段的路径和服务时间
-            if customer_node not in temp_reservation_table:
-                temp_reservation_table[customer_node] = []
+        temp_reservation_table[customer_node].append({
+            'start': arrival_time_in_air + land_duration,
+            'end': arrival_time_in_air + land_duration + service_time,
+            'arrive_time': arrival_time_in_air + land_duration,
+            'drone_id': drone_id,
+            'type': 'service_stop' 
+        })
+
+        path2 = self.spatio_temporal_a_star(
+            self.G_air,
+            customer_node,
+            self.node[recovery_node].map_key,
+            departure_time_for_path2, # 第二段的开始时间
+            self.heuristics[self.node[recovery_node].map_key], 
+            constraints,
+            temp_reservation_table,
+            drone_id
+        )
+        
+        if not path2:
+            return None, None # 第二段找不到路
+        
+        self._update_reservation_table_with_path(temp_reservation_table, path2, drone_id, mission_tuple)
+        
+        # ------------------
+        # 合并路径并返回
+        # ------------------
+        full_path = path1 + path2[1:] 
+        
+        return full_path, temp_reservation_table
+
+    # def _plan_full_mission_path(self, mission_tuple, mission_dict, constraints, reservation_table):
+    #         """
+    #         为单个无人机规划完整的两段式任务路径 (Launch -> Customer -> Recovery)。
+    #         """
+    #         drone_id, launch_node, customer_node, recovery_node, _, _ = mission_tuple
+    #         service_time = self.node[customer_node].serviceTimeUAV # 假设客户点的服务时间为1个时间单位，可以设为参数
+    #         # --- 修正：动态调整发射时间 ---
+    #         # 检查 launch_node 在 launch_time 是否被占用
+    #         adjusted_launch_time = mission_dict['launch_time']
+
+    #         # ------------------
+    #         # 路径第一段: 发射点 -> 客户点
+    #         # ------------------
+    #         climb_altitude = abs(self.node[launch_node].map_position[2] - self.node[launch_node].position[2])
+    #         climb_time = climb_altitude / self.vehicle[drone_id].takeoffSpeed
+    #         path1 = self.spatio_temporal_a_star(
+    #             self.G_air,
+    #             self.node[launch_node].map_key,  # 使用原始节点ID
+    #             customer_node,
+    #             mission_dict['launch_time'] + climb_time,  # 更新精确的无人机到达空中节点的时间状况
+    #             self.heuristics[customer_node], # 启发函数需要目标是客户点
+    #             constraints,
+    #             reservation_table,
+    #             drone_id
+    #         )
+
+    #         if not path1:
+    #             print(f"找不到可行路径！Debug: Path1 failed for {drone_id}")
+    #             return None, None # 第一段就找不到路
+            
+    #         # 1. 计算各项时间
+    #         arrival_time_in_air = path1[-1][1]  # 到达客户点上空，准备降落的时刻
+
+    #         # 计算降落耗时
+    #         land_altitude = abs(self.node[customer_node].map_position[2] - self.node[customer_node].position[2])
+    #         land_duration = land_altitude / self.vehicle[drone_id].landingSpeed
+            
+    #         # 计算爬升耗时
+    #         climb_duration = land_altitude / self.vehicle[drone_id].takeoffSpeed
+
+    #         # 计算第二段路径的真正起飞时刻
+    #         # 起飞时刻 = 空中到达时刻 + 降落耗时 + 地面服务耗时 + 爬升耗时
+    #         departure_time_for_path2 = arrival_time_in_air + land_duration + service_time + climb_duration
+
+    #         # 注意：这里我们应该调用统一的、精确的更新函数来完成
+    #         # reservation_table = self._update_reservation_table_with_path(reservation_table, path1, drone_id, mission_tuple)
+    #         self._update_reservation_table_with_path(reservation_table, path1, drone_id, mission_tuple)
+    #         # 2. 为第二段路径准备一个高度精确的临时预留表
+    #         temp_reservation_table = copy.copy(reservation_table)
+            
+    #         # 为第二段路径创建一个临时的预留表，包含第一段的路径和服务时间
+    #         if customer_node not in temp_reservation_table:
+    #             temp_reservation_table[customer_node] = []
                 
-            temp_reservation_table[customer_node].append({
-                'start': arrival_time_in_air + land_duration,
-                'end': arrival_time_in_air + land_duration + service_time,
-                'arrive_time': arrival_time_in_air + land_duration,
-                'drone_id': drone_id,
-                'type': 'service_stop' # 标记类型，方便调试
-            })
+    #         temp_reservation_table[customer_node].append({
+    #             'start': arrival_time_in_air + land_duration,
+    #             'end': arrival_time_in_air + land_duration + service_time,
+    #             'arrive_time': arrival_time_in_air + land_duration,
+    #             'drone_id': drone_id,
+    #             'type': 'service_stop' # 标记类型，方便调试
+    #         })
 
-            path2 = self.spatio_temporal_a_star(
-                self.G_air,
-                customer_node,
-                self.node[recovery_node].map_key,
-                departure_time_for_path2 , # 第二段的开始时间
-                self.heuristics[self.node[recovery_node].map_key], # 启发函数需要目标是回收点
-                constraints,
-                temp_reservation_table,
-                drone_id
-            )
+    #         path2 = self.spatio_temporal_a_star(
+    #             self.G_air,
+    #             customer_node,
+    #             self.node[recovery_node].map_key,
+    #             departure_time_for_path2 , # 第二段的开始时间
+    #             self.heuristics[self.node[recovery_node].map_key], # 启发函数需要目标是回收点
+    #             constraints,
+    #             temp_reservation_table,
+    #             drone_id
+    #         )
             
-            if not path2:
-                # print(f"Debug: Path2 failed for {drone_id}")
-                return None, None # 第二段找不到路
+    #         if not path2:
+    #             # print(f"Debug: Path2 failed for {drone_id}")
+    #             return None, None # 第二段找不到路
             
-            # temp_reservation_table = self._update_reservation_table_with_path(temp_reservation_table, path2, drone_id, mission_tuple)
-            self._update_reservation_table_with_path(temp_reservation_table, path2, drone_id, mission_tuple)
-            # ------------------
-            # 合并路径并返回
-            # ------------------
-            # 完整路径 = path1 + 在客户点等待的时间 + path2 (去掉重复的客户点)
-            full_path = path1 + path2[1:]  # 第一个path1代表在第一次到达cus中的空中air的到达时间，第二个path2代表发射完成准备执行任务的path2
-            # 更新预留表，以及无人机到达各个节点的到达时间
-            return full_path, temp_reservation_table
+    #         # temp_reservation_table = self._update_reservation_table_with_path(temp_reservation_table, path2, drone_id, mission_tuple)
+    #         self._update_reservation_table_with_path(temp_reservation_table, path2, drone_id, mission_tuple)
+    #         # ------------------
+    #         # 合并路径并返回
+    #         # ------------------
+    #         # 完整路径 = path1 + 在客户点等待的时间 + path2 (去掉重复的客户点)
+    #         full_path = path1 + path2[1:]  # 第一个path1代表在第一次到达cus中的空中air的到达时间，第二个path2代表发射完成准备执行任务的path2
+    #         # 更新预留表，以及无人机到达各个节点的到达时间
+    #         return full_path, temp_reservation_table
 
     def _detect_collisions(self, paths, constraints):
         """
@@ -1056,7 +1184,8 @@ class Time_cbs_Batch_Solver:
         heapq.heappush(open_list, (launch_time + heuristic[start_node]/self.vehicle[drone_id].cruiseSpeed, launch_time, (launch_time, start_node)))
         came_from = {}
         g_score = { (launch_time, start_node): launch_time }
-        
+        # 定义微小时间量，用于浮点数比较和避让
+        EPSILON = 1e-4
         while open_list:
             _, current_g, current_state = heapq.heappop(open_list)
             current_time, current_node = current_state
@@ -1090,34 +1219,61 @@ class Time_cbs_Batch_Solver:
                 # --- 2. 解决冲突，计算实际可行的到达时间 ---
                 # 从最早可能到达的时间开始，向未来搜索一个没有冲突的时间点
                 safe_arrival_time = earliest_arrival_time
-                
-                while True:
-                    # 假设 last_conflict_end_time 初始化为-1
-                    last_conflict_end_time = -1  # 记录所有冲突的最晚结束时间（用于后续跳转）
+                loop_count = 0
+                MAX_LOOPS = 50 # 限制单次节点扩展的最大尝试次数，防止死循环
+                while loop_count < MAX_LOOPS:
+                    loop_count += 1
+                    found_conflict = False
+                    max_conflict_end_time = -1
 
-                    # 1. 检查CBS约束 (这部分仍然需要线性扫描)
-                    is_constrained = False
-                    temp_arrival_time = safe_arrival_time
+                    # A. 检查 CBS 约束
+                    # 建议：如果 CBS 约束很多，这里应该优化为二分查找或区间树，而不是线性遍历
+                    for c in constraints:
+                        # 检查顶点约束 (Loc: [u], Time: t)
+                        # 使用 abs < EPSILON 处理浮点相等
+                        if len(c['loc']) == 1 and c['loc'][0] == neighbor:
+                            if abs(c['time'] - safe_arrival_time) < EPSILON:
+                                found_conflict = True
+                                # 如果是点约束，只推迟一点点；如果是区间约束，推迟到区间结束
+                                max_conflict_end_time = max(max_conflict_end_time, c['time'] + 0.05) # 假设离散时间步长至少 0.05
 
-                    while True: # 内循环检查CBS约束 # 临时变量，用于调整时间,起始点跟随发射冲突
-                        cbs_conflict_found = False # 标记是否发现CBS冲突
-                        # 检查顶点约束  # CBS约束格式：{'loc': [节点1, 节点2], 'time': 时间} → 边约束（某边某时间不可用
-                        for c in constraints:
-                            if len(c['loc']) == 1 and c['loc'][0] == neighbor and c['time'] == temp_arrival_time:
-                                cbs_conflict_found = True
-                                break
-                        # 检查边约束
-                        if not cbs_conflict_found and neighbor != current_node:
-                            for c in constraints:
-                                if len(c['loc']) == 2 and c['loc'] == [current_node, neighbor] and c['time'] == temp_arrival_time:
-                                    cbs_conflict_found = True
-                                    break
+                        # 检查边约束 (Loc: [u, v], Time: t)
+                        if neighbor != current_node and len(c['loc']) == 2:
+                            if c['loc'] == [current_node, neighbor] and abs(c['time'] - safe_arrival_time) < EPSILON:
+                                found_conflict = True
+                                max_conflict_end_time = max(max_conflict_end_time, c['time'] + 0.05)
+
+                    # B. 检查预留表 (Reservation Table)
+                    reserved_intervals = reservation_table.get(neighbor, [])
+                    for interval in reserved_intervals:
+                        if interval['drone_id'] == drone_id:
+                            continue
                         
-                        if cbs_conflict_found:
-                            last_conflict_end_time = max(last_conflict_end_time, temp_arrival_time)
-                            temp_arrival_time += 0.017 # 如果CBS约束冲突，只能+1，因为约束是离散的点
+                        start_t, end_t = interval['start'], interval['end']
+                        
+                        # 检查时间重叠：[start, end)
+                        # 使用宽松的判定：start - eps <= t < end - eps
+                        if start_t - EPSILON <= safe_arrival_time < end_t - EPSILON:
+                            found_conflict = True
+                            # 关键修复：直接跳到冲突结束时间，而不是 += 0.02
+                            max_conflict_end_time = max(max_conflict_end_time, end_t)
+
+                    if found_conflict:
+                        # 智能跳转：直接跳到所有已知冲突的最晚结束时间
+                        # 并加上一个极小值确保不落在边界上
+                        if max_conflict_end_time > safe_arrival_time:
+                            safe_arrival_time = max_conflict_end_time + EPSILON
                         else:
-                            break # 没有CBS约束冲突，跳出内循环
+                            # 如果 max_conflict_end_time 没有更新（比如仅有点约束），则手动步进
+                            safe_arrival_time += 0.05 
+                        continue # 重新检查新时间点是否安全
+                    else:
+                        # 没有发现任何冲突，该时间点安全
+                        break
+                
+                if loop_count >= MAX_LOOPS:
+                    # 如果尝试了太多次仍无解，视为该邻居不可达（当前时刻）
+                    continue
                     
                     # 更新 safe_arrival_time 为躲过CBS约束后的时间
                     safe_arrival_time = temp_arrival_time
@@ -1143,7 +1299,8 @@ class Time_cbs_Batch_Solver:
 
                     if reservation_conflict_found or last_conflict_end_time != -1:
                         if cbs_conflict_found:
-                                safe_arrival_time += 0.02 
+                                # safe_arrival_time += 0.02 
+                                safe_arrival_time += 1
                         # 如果是预留表冲突（时间段），可以智能跳转到冲突结束的时刻
                         if reservation_conflict_found:
                             safe_arrival_time = max(safe_arrival_time, last_conflict_end_time)

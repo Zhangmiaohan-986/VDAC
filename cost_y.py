@@ -318,7 +318,32 @@ def compute_uav_tw_violation_cost(best_customer_plan,
 
     return uav_tw_violation_cost
 
-
+def get_max_completion_time(best_arrive_time):
+    """
+    从 best_arrive_time 中提取每个车辆的最大到达时间，并返回全局最大完成时间
+    
+    参数：
+        best_arrive_time: 嵌套字典 {车辆ID: {节点ID: 到达时间}}
+    返回：
+        vehicle_max_times: 字典 {车辆ID: 该车辆最大到达时间}
+        global_max_time: 所有车辆的最大完成时间（全局最大值）
+    """
+    vehicle_max_times = {}
+    
+    # 遍历每个车辆的到达时间数据
+    for vehicle_id, node_time_dict in best_arrive_time.items():
+        if not node_time_dict:  # 处理空字典（车辆无任务）
+            vehicle_max_times[vehicle_id] = 0.0
+            continue
+        # 提取该车辆所有节点的到达时间，找最大值
+        node_times = list(node_time_dict.values())
+        max_time = max(node_times)
+        vehicle_max_times[vehicle_id] = max_time
+    
+    # 计算全局最大完成时间
+    global_max_time = max(vehicle_max_times.values()) if vehicle_max_times else 0.0
+    
+    return vehicle_max_times, global_max_time
 # def sort_customer_plans(customer_costs, plan_y):
 #     """
 #     对每个客户的成本列表进行排序，并同步调整对应方案的顺序
