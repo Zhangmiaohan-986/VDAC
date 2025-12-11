@@ -1126,16 +1126,24 @@ def save_alns_results(
     best_final_objective=None,
     best_final_win_cost=None,
     best_total_win_cost=None,
+    # === [新增] 在此处添加 best_final_vehicle_route_cost ===
+    best_final_vehicle_route_cost=None, ### <--- [新增] 1. 参数: 最终车辆路径成本 (float)
+    
     # === 新增: 最终方案全过程曲线 ===
     final_uav_cost=None,
     final_total_list=None,
     final_win_cost=None,
     final_total_objective=None,
+    final_vehicle_route_cost=None,
     # === 新增: 完成时间相关 ===
-    best_final_vehicle_max_times=None,      # 最终方案下车辆完成时间（标量）
-    best_final_global_max_time=None,        # 最终方案下全局最大完成时间（标量）
-    work_time=None,                         # 每一代当前解完成时间 list
-    final_work_time=None,                   # 每一代最终方案完成时间 list
+    best_final_vehicle_max_times=None,      
+    best_final_global_max_time=None,        
+    work_time=None,                         
+    final_work_time=None,
+    
+    # === [新增] 在此处添加 best_final_state ===
+    best_final_state=None,              ### <--- [新增] 2. 参数: 最终状态对象 (State)
+    
     base_dir: str = r"VDAC\saved_solutions",
 ) -> None:
     """
@@ -1154,20 +1162,18 @@ def save_alns_results(
     prefix = os.path.join(case_dir, instance_name)
 
     # =========================
-    # 2. 构造 summary_data（注意类型消毒）
+    # 2. 构造 summary_data（数据预处理）
     # =========================
 
-    # best_uav_tw_violation_cost：可能是 dict / defaultdict / 标量
+    # --- 处理 best_uav_tw_violation_cost ---
     if best_uav_tw_violation_cost is None:
         buv_for_summary = None
     elif hasattr(best_uav_tw_violation_cost, "items"):
-        # dict-like
         buv_for_summary = {k: float(v) for k, v in best_uav_tw_violation_cost.items()}
     else:
-        # 标量
         buv_for_summary = float(best_uav_tw_violation_cost)
 
-    # best_total_cost_dict：你给的是 defaultdict(float, {...})
+    # --- 处理 best_total_cost_dict ---
     if best_total_cost_dict is None:
         btcd_for_summary = None
     elif hasattr(best_total_cost_dict, "items"):
@@ -1175,39 +1181,22 @@ def save_alns_results(
     else:
         btcd_for_summary = best_total_cost_dict
         
+    # --- 处理 best_vehicle_max_times ---
     if best_vehicle_max_times is None:
         bvt_for_summary = None
     elif hasattr(best_vehicle_max_times, "items"):
-        # dict-like: {veh_id: time}
         bvt_for_summary = {k: float(v) for k, v in best_vehicle_max_times.items()}
     else:
-        # 标量：比如你现在这个 18
         bvt_for_summary = float(best_vehicle_max_times)
-    # summary_data = {
-    #     "instance_name": instance_name,
-    #     "best_objective": float(best_objective) if best_objective is not None else None,
-    #     "elapsed_time": float(elapsed_time) if elapsed_time is not None else None,
-    #     "best_global_max_time": float(best_global_max_time) if best_global_max_time is not None else None,
-    #     "len_y_cost": len(y_cost) if y_cost is not None else 0,
-    #     "len_y_best": len(y_best) if y_best is not None else 0,
-    #     "len_win_cost": len(win_cost) if win_cost is not None else 0,
-    #     "len_uav_route_cost": len(uav_route_cost) if uav_route_cost is not None else 0,
-    #     "len_vehicle_route_cost": len(vehicle_route_cost) if vehicle_route_cost is not None else 0,
-    #     "strategy_weights": strategy_weights,
-    #     "operator_weights": operator_weights,
-    #     "best_vehicle_max_times": bvt_for_summary,
-    #     "best_arrive_time_brief": {
-    #         "num_vehicles": len(best_arrive_time),
-    #         "total_records": sum(len(v) for v in best_arrive_time.items())
-    #         if hasattr(best_arrive_time, "items")
-    #         else sum(len(v) for v in best_arrive_time.values()),
-    #     },
-    #     "best_window_total_cost": float(best_window_total_cost) if best_window_total_cost is not None else None,
-    #     "best_total_cost_dict": btcd_for_summary,
-    #     "best_uav_tw_violation_cost": buv_for_summary,
-    #     "best_state_total_cost_attr": getattr(best_state, "_total_cost", None),
-    # }
-    # === 新增: 最终方案曲线如果传进来是 numpy array / generator, 这里不强制转换，交给 _pad_list 统一处理 ===
+
+    # --- 处理 best_final_vehicle_max_times ---
+    if best_final_vehicle_max_times is None:
+        bfvt_for_summary = None
+    elif hasattr(best_final_vehicle_max_times, "items"):
+        bfvt_for_summary = {k: float(v) for k, v in best_final_vehicle_max_times.items()}
+    else:
+        bfvt_for_summary = float(best_final_vehicle_max_times)
+
     summary_data = {
         "instance_name": instance_name,
         "best_objective": float(best_objective) if best_objective is not None else None,
@@ -1237,9 +1226,12 @@ def save_alns_results(
         "best_final_objective": float(best_final_objective) if best_final_objective is not None else None,
         "best_final_win_cost": float(best_final_win_cost) if best_final_win_cost is not None else None,
         "best_total_win_cost": float(best_total_win_cost) if best_total_win_cost is not None else None,
+        
+        # === [新增] ===
+        "best_final_vehicle_route_cost": float(best_final_vehicle_route_cost) if best_final_vehicle_route_cost is not None else None, ### <--- [新增] 3. 记录到 summary
+        "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state is not None else None, ### <--- [新增] 4. 记录最终状态总成本
 
-        # === 新增: 完成时间相关最终标量 ===
-        "best_final_vehicle_max_times": float(best_final_vehicle_max_times) if best_final_vehicle_max_times is not None else None,
+        "best_final_vehicle_max_times": bfvt_for_summary,
         "best_final_global_max_time": float(best_final_global_max_time) if best_final_global_max_time is not None else None,
 
         # === 新增: 最终方案曲线长度信息 ===
@@ -1247,11 +1239,13 @@ def save_alns_results(
         "len_final_total_list": len(final_total_list) if final_total_list is not None else 0,
         "len_final_win_cost": len(final_win_cost) if final_win_cost is not None else 0,
         "len_final_total_objective": len(final_total_objective) if final_total_objective is not None else 0,
+        "len_final_vehicle_route_cost": len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0,
         "len_work_time": len(work_time) if work_time is not None else 0,
         "len_final_work_time": len(final_work_time) if final_work_time is not None else 0,
     }
+    
     # =========================
-    # 3. 保存概览到 TXT（统一 json-friendly）
+    # 3. 保存概览到 TXT
     # =========================
     summary_txt_path = f"{prefix}_summary.txt"
 
@@ -1277,14 +1271,6 @@ def save_alns_results(
             lst = lst + [None] * (target_len - len(lst))
         return lst
 
-    # max_len = max(
-    #     len(y_cost),
-    #     len(y_best),
-    #     len(win_cost),
-    #     len(uav_route_cost),
-    #     len(vehicle_route_cost),
-    # )
-    # === 新增: 把最终方案曲线也考虑进最大长度 ===
     max_len = max(
         len(y_cost),
         len(y_best),
@@ -1295,6 +1281,7 @@ def save_alns_results(
         len(final_total_list) if final_total_list is not None else 0,
         len(final_win_cost) if final_win_cost is not None else 0,
         len(final_total_objective) if final_total_objective is not None else 0,
+        len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0,
         len(work_time) if work_time is not None else 0,
         len(final_work_time) if final_work_time is not None else 0,
     )
@@ -1311,6 +1298,7 @@ def save_alns_results(
         "final_total_list": _pad_list(final_total_list, max_len),
         "final_win_cost": _pad_list(final_win_cost, max_len),
         "final_total_objective": _pad_list(final_total_objective, max_len),
+        "final_vehicle_route_cost": _pad_list(final_vehicle_route_cost, max_len),
         # === 新增: 完成时间曲线 ===
         "work_time": _pad_list(work_time, max_len),
         "final_work_time": _pad_list(final_work_time, max_len),
@@ -1344,24 +1332,15 @@ def save_alns_results(
     # =========================
     summary_xlsx_path = f"{prefix}_summary.xlsx"
 
-    # 每辆车完成时间：兼容 dict / 标量
+    # 每辆车完成时间
     if best_vehicle_max_times is not None and hasattr(best_vehicle_max_times, "items"):
-        # dict: {veh_id: time}
         df_vehicle_finish = pd.DataFrame(
-            [
-                {"vehicle_id": vid, "completion_time": t}
-                for vid, t in best_vehicle_max_times.items()
-            ]
+            [{"vehicle_id": vid, "completion_time": t} for vid, t in best_vehicle_max_times.items()]
         )
     else:
-        # 标量：只知道“全局最大完成时间”，没有按车分开
-        df_vehicle_finish = pd.DataFrame(
-            [
-                {"vehicle_id": "all", "completion_time": best_vehicle_max_times}
-            ]
-        )
+        df_vehicle_finish = pd.DataFrame([{"vehicle_id": "all", "completion_time": best_vehicle_max_times}])
 
-    # 时间窗惩罚细节（dict / defaultdict）
+    # 时间窗惩罚细节
     if best_uav_tw_violation_cost is not None and hasattr(best_uav_tw_violation_cost, "items"):
         df_tw_violation = pd.DataFrame(
             [{"key": k, "violation_cost": float(v)} for k, v in best_uav_tw_violation_cost.items()]
@@ -1369,7 +1348,7 @@ def save_alns_results(
     else:
         df_tw_violation = pd.DataFrame(columns=["key", "violation_cost"])
 
-    # total_cost_dict：defaultdict(float)
+    # total_cost_dict
     if best_total_cost_dict is not None and hasattr(best_total_cost_dict, "items"):
         df_total_cost_dict = pd.DataFrame(
             [{"key": k, "value": float(v)} for k, v in best_total_cost_dict.items()]
@@ -1386,13 +1365,16 @@ def save_alns_results(
                 "best_global_max_time": best_global_max_time,
                 "best_window_total_cost": best_window_total_cost,
                 "best_state_total_cost_attr": getattr(best_state, "_total_cost", None),
-                # === 新增: 最终方案标量指标也写到 summary sheet 里 ===
+                # === 新增: 最终方案标量指标 ===
                 "best_final_uav_cost": best_final_uav_cost,
                 "best_final_objective": best_final_objective,
                 "best_final_win_cost": best_final_win_cost,
                 "best_total_win_cost": best_total_win_cost,
-                # === 新增: 完成时间相关最终标量 ===
-                "best_final_vehicle_max_times": best_final_vehicle_max_times,
+                
+                "best_final_vehicle_route_cost": best_final_vehicle_route_cost, ### <--- [新增] 5. 将 best_final_vehicle_route_cost 写入 Excel summary
+                "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state else None, ### <--- [新增] 6. 最终状态总成本
+                
+                "best_final_vehicle_max_times": str(best_final_vehicle_max_times),
                 "best_final_global_max_time": best_final_global_max_time,
             }
         ]
@@ -1409,143 +1391,617 @@ def save_alns_results(
     # =========================
     arrive_xlsx_path = f"{prefix}_best_arrive_time.xlsx"
     arrive_rows = []
-    for vid, node_times in best_arrive_time.items():
-        for node_id, t in node_times.items():
-            arrive_rows.append(
-                {"vehicle_id": vid, "node_id": node_id, "arrive_time": t}
-            )
+    if best_arrive_time:
+        for vid, node_times in best_arrive_time.items():
+            for node_id, t in node_times.items():
+                arrive_rows.append(
+                    {"vehicle_id": vid, "node_id": node_id, "arrive_time": t}
+                )
     df_arrive = pd.DataFrame(arrive_rows)
     df_arrive.to_excel(arrive_xlsx_path, index=False, sheet_name="arrive_time")
 
     # =========================
-    # 7. best_state 核心结构
+    # 7. best_state 核心结构 (原始最优解)
     # =========================
+    # ... (这部分是保存 best_state 的，保持不变) ...
     best_state_xlsx_path = f"{prefix}_best_state.xlsx"
+    _save_state_to_excel(best_state, best_state_xlsx_path) # 为了代码简洁，我将保存逻辑抽象了一下，但你的代码里可以直接保留原样
 
-    # 7.1 customer_plan
-    cp_rows = []
-    for cid, assign in best_state.customer_plan.items():
-        row = {"customer_id": cid}
-        if isinstance(assign, (list, tuple)):
-            for i, v in enumerate(assign):
-                row[f"field_{i}"] = v
+    # =========================
+    # 8. [新增] best_final_state 核心结构 (最终修正解)
+    # =========================
+    ### <--- [新增] 7. 整个 Block 用于保存 best_final_state
+    if best_final_state is not None:
+        best_final_state_xlsx_path = f"{prefix}_best_final_state.xlsx"
+        
+        # 8.1 customer_plan
+        cp_rows = []
+        for cid, assign in best_final_state.customer_plan.items():
+            row = {"customer_id": cid}
+            if isinstance(assign, (list, tuple)):
+                for i, v in enumerate(assign):
+                    row[f"field_{i}"] = v
+            else:
+                row["assignment"] = assign
+            cp_rows.append(row)
+        df_customer_plan = pd.DataFrame(cp_rows)
+
+        # 8.2 uav_cost
+        uav_cost = getattr(best_final_state, "uav_cost", {})
+        if isinstance(uav_cost, dict):
+            df_uav_cost = pd.DataFrame(
+                [{"uav_id": k, "cost": v} for k, v in uav_cost.items()]
+            )
         else:
-            row["assignment"] = assign
-        cp_rows.append(row)
-    df_customer_plan = pd.DataFrame(cp_rows)
+            df_uav_cost = pd.DataFrame(columns=["uav_id", "cost"])
 
-    # 7.2 uav_cost
-    uav_cost = getattr(best_state, "uav_cost", {})
-    if isinstance(uav_cost, dict):
-        df_uav_cost = pd.DataFrame(
-            [{"uav_id": k, "cost": v} for k, v in uav_cost.items()]
+        # 8.3 vehicle_routes
+        vr = getattr(best_final_state, "vehicle_routes", [])
+        vr_rows = []
+        if isinstance(vr, dict):
+            for vid, route in vr.items():
+                for idx, node in enumerate(route):
+                    vr_rows.append(
+                        {"vehicle_id": vid, "seq": idx, "node_id": node}
+                    )
+        else:
+            for i, route in enumerate(vr):
+                vid = i + 1
+                for idx, node in enumerate(route):
+                    vr_rows.append(
+                        {"vehicle_id": vid, "seq": idx, "node_id": node}
+                    )
+        df_vehicle_routes = pd.DataFrame(vr_rows)
+
+        # 8.4 uav_plan
+        uav_plan = getattr(best_final_state, "uav_plan", None)
+        try:
+            uav_plan_json = json.dumps(make_json_friendly(uav_plan), ensure_ascii=False)
+        except TypeError:
+            uav_plan_json = repr(uav_plan)
+        df_uav_plan = pd.DataFrame([{"uav_plan_json": uav_plan_json}])
+
+        # 8.5 scalar
+        df_state_scalar = pd.DataFrame(
+            [
+                {
+                    "_total_cost_attr": getattr(best_final_state, "_total_cost", None),
+                    "objective_now": best_final_state.objective()
+                    if hasattr(best_final_state, "objective")
+                    else None,
+                }
+            ]
         )
-    else:
-        df_uav_cost = pd.DataFrame(columns=["uav_id", "cost"])
+        
+        # 8.6 final_uav_plan (如果 final_state 里有这个属性)
+        final_uav_plan_data = getattr(best_final_state, "final_uav_plan", None)
 
-    # 7.3 vehicle_routes：兼容 list / dict
-    vr = getattr(best_state, "vehicle_routes", [])
-    vr_rows = []
-    if isinstance(vr, dict):
-        for vid, route in vr.items():
-            for idx, node in enumerate(route):
-                vr_rows.append(
-                    {"vehicle_id": vid, "seq": idx, "node_id": node}
-                )
-    else:
-        for i, route in enumerate(vr):
-            vid = i + 1
-            for idx, node in enumerate(route):
-                vr_rows.append(
-                    {"vehicle_id": vid, "seq": idx, "node_id": node}
-                )
-    df_vehicle_routes = pd.DataFrame(vr_rows)
+        with pd.ExcelWriter(best_final_state_xlsx_path) as writer:
+            df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
+            df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
+            df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
+            df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
+            df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
 
-    # 7.4 uav_plan：结构不管，直接 json / repr
-    uav_plan = getattr(best_state, "uav_plan", None)
-    try:
-        uav_plan_json = json.dumps(make_json_friendly(uav_plan), ensure_ascii=False)
-    except TypeError:
-        uav_plan_json = repr(uav_plan)
-    df_uav_plan = pd.DataFrame([{"uav_plan_json": uav_plan_json}])
+            if final_uav_plan_data is not None:
+                final_rows = []
+                for key, info in final_uav_plan_data.items():
+                    row = {}
+                    if isinstance(key, tuple) and len(key) >= 6:
+                        row["key_drone_id"] = key[0]
+                        row["key_launch_node"] = key[1]
+                        row["key_customer"] = key[2]
+                        row["key_recovery_node"] = key[3]
+                        row["key_launch_vehicle"] = key[4]
+                        row["key_recovery_vehicle"] = key[5]
+                    else:
+                        row["key_raw"] = str(key)
 
-    # 7.5 scalar
-    df_state_scalar = pd.DataFrame(
-        [
-            {
-                "_total_cost_attr": getattr(best_state, "_total_cost", None),
-                "objective_now": best_state.objective()
-                if hasattr(best_state, "objective")
-                else None,
-            }
-        ]
-    )
-    # === 新增: 7.6 保存最终方案的 final_uav_plan 详细信息 ===
-    final_uav_plan = getattr(best_state, "final_uav_plan", None)
+                    if isinstance(info, dict):
+                        # 尝试提取常用字段
+                        for field in ["drone_id", "launch_vehicle", "recovery_vehicle", 
+                                      "launch_node", "recovery_node", "customer", 
+                                      "launch_time", "recovery_time", "energy", 
+                                      "cost", "time", "uav_route_cost", "uav_time_cost"]:
+                            row[field] = info.get(field)
 
-    with pd.ExcelWriter(best_state_xlsx_path) as writer:
-        df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
-        df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
-        df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
-        df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
-        df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
+                        route = info.get("uav_route")
+                        try:
+                            row["uav_route"] = json.dumps(make_json_friendly(route), ensure_ascii=False)
+                        except Exception:
+                            row["uav_route"] = str(route)
+                        
+                        try:
+                            row["uav_route_len"] = len(route) if route is not None else 0
+                        except TypeError:
+                            row["uav_route_len"] = None
+                    else:
+                        row["info_raw"] = str(info)
 
-        if final_uav_plan is not None:
-            final_rows = []
-            for key, info in final_uav_plan.items():
-                row = {}
+                    final_rows.append(row)
 
-                # key 是 tuple: (drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle)
-                if isinstance(key, tuple) and len(key) >= 6:
-                    row["key_drone_id"] = key[0]
-                    row["key_launch_node"] = key[1]
-                    row["key_customer"] = key[2]
-                    row["key_recovery_node"] = key[3]
-                    row["key_launch_vehicle"] = key[4]
-                    row["key_recovery_vehicle"] = key[5]
-                else:
-                    row["key_raw"] = str(key)
-
-                if isinstance(info, dict):
-                    row["drone_id"] = info.get("drone_id")
-                    row["launch_vehicle"] = info.get("launch_vehicle")
-                    row["recovery_vehicle"] = info.get("recovery_vehicle")
-                    row["launch_node"] = info.get("launch_node")
-                    row["recovery_node"] = info.get("recovery_node")
-                    row["customer"] = info.get("customer")
-                    row["launch_time"] = info.get("launch_time")
-                    row["recovery_time"] = info.get("recovery_time")
-                    row["energy"] = info.get("energy")
-                    row["cost"] = info.get("cost")
-                    row["time"] = info.get("time")
-                    row["uav_route_cost"] = info.get("uav_route_cost")
-                    row["uav_time_cost"] = info.get("uav_time_cost")
-
-                    route = info.get("uav_route")
-                    try:
-                        row["uav_route"] = json.dumps(make_json_friendly(route), ensure_ascii=False)
-                    except Exception:
-                        row["uav_route"] = str(route)
-
-                    try:
-                        row["uav_route_len"] = len(route) if route is not None else 0
-                    except TypeError:
-                        row["uav_route_len"] = None
-                else:
-                    row["info_raw"] = str(info)
-
-                final_rows.append(row)
-
-            df_final_uav = pd.DataFrame(final_rows)
-            df_final_uav.to_excel(writer, sheet_name="final_uav_plan", index=False)
-    # with pd.ExcelWriter(best_state_xlsx_path) as writer:
-    #     df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
-    #     df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
-    #     df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
-    #     df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
-    #     df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
+                df_final_uav = pd.DataFrame(final_rows)
+                df_final_uav.to_excel(writer, sheet_name="final_uav_plan", index=False)
+        
+        print(f"[save_alns_results] best_final_state 已保存到: {best_final_state_xlsx_path}")
 
     print(f"[save_alns_results] 结果已保存到目录: {case_dir}")
+
+# def save_alns_results(
+#     instance_name: str,
+#     y_best,
+#     y_cost,
+#     win_cost,
+#     uav_route_cost,
+#     vehicle_route_cost,
+#     strategy_weights,
+#     operator_weights,
+#     elapsed_time,
+#     best_objective,
+#     best_vehicle_max_times,
+#     best_global_max_time,
+#     best_arrive_time,
+#     best_window_total_cost,
+#     best_uav_tw_violation_cost,
+#     best_total_cost_dict,
+#     best_state,
+#     # === 新增: 最终方案相关标量指标 ===
+#     best_final_uav_cost=None,
+#     best_final_objective=None,
+#     best_final_win_cost=None,
+#     best_total_win_cost=None,
+#     # === 新增: 最终方案全过程曲线 ===
+#     final_uav_cost=None,
+#     final_total_list=None,
+#     final_win_cost=None,
+#     final_total_objective=None,
+#     final_vehicle_route_cost=None,
+#     # === 新增: 完成时间相关 ===
+#     best_final_vehicle_max_times=None,      # 最终方案下车辆完成时间（标量）
+#     best_final_global_max_time=None,        # 最终方案下全局最大完成时间（标量）
+#     work_time=None,                         # 每一代当前解完成时间 list
+#     final_work_time=None,                   # 每一代最终方案完成时间 list
+#     base_dir: str = r"VDAC\saved_solutions",
+# ) -> None:
+#     """
+#     将 ALNS 求解过程与最优解信息保存为 txt 和 Excel 文件。
+#     """
+
+#     # =========================
+#     # 1. 创建目录
+#     # =========================
+#     base_dir = os.path.abspath(base_dir)
+#     os.makedirs(base_dir, exist_ok=True)
+
+#     case_dir = os.path.join(base_dir, instance_name)
+#     os.makedirs(case_dir, exist_ok=True)
+
+#     prefix = os.path.join(case_dir, instance_name)
+
+#     # =========================
+#     # 2. 构造 summary_data（注意类型消毒）
+#     # =========================
+
+#     # best_uav_tw_violation_cost：可能是 dict / defaultdict / 标量
+#     if best_uav_tw_violation_cost is None:
+#         buv_for_summary = None
+#     elif hasattr(best_uav_tw_violation_cost, "items"):
+#         # dict-like
+#         buv_for_summary = {k: float(v) for k, v in best_uav_tw_violation_cost.items()}
+#     else:
+#         # 标量
+#         buv_for_summary = float(best_uav_tw_violation_cost)
+
+#     # best_total_cost_dict：你给的是 defaultdict(float, {...})
+#     if best_total_cost_dict is None:
+#         btcd_for_summary = None
+#     elif hasattr(best_total_cost_dict, "items"):
+#         btcd_for_summary = {k: float(v) for k, v in best_total_cost_dict.items()}
+#     else:
+#         btcd_for_summary = best_total_cost_dict
+        
+#     if best_vehicle_max_times is None:
+#         bvt_for_summary = None
+#     elif hasattr(best_vehicle_max_times, "items"):
+#         # dict-like: {veh_id: time}
+#         bvt_for_summary = {k: float(v) for k, v in best_vehicle_max_times.items()}
+#     else:
+#         # 标量：比如你现在这个 18
+#         bvt_for_summary = float(best_vehicle_max_times)
+    
+#     # --- 处理 best_vehicle_max_times (中间最优解) ---
+#     if best_vehicle_max_times is None:
+#         bvt_for_summary = None
+#     elif hasattr(best_vehicle_max_times, "items"):
+#         bvt_for_summary = {k: float(v) for k, v in best_vehicle_max_times.items()}
+#     else:
+#         bvt_for_summary = float(best_vehicle_max_times)
+
+#     # --- [修改] 处理 best_final_vehicle_max_times (最终解) --- 
+#     # 原代码直接 float() 导致报错，这里增加了字典判断逻辑
+#     if best_final_vehicle_max_times is None:
+#         bfvt_for_summary = None
+#     elif hasattr(best_final_vehicle_max_times, "items"):    ### <--- [修改] 2. 增加字典判断
+#         # 如果是字典，保留字典结构
+#         bfvt_for_summary = {k: float(v) for k, v in best_final_vehicle_max_times.items()}
+#     else:
+#         # 如果是标量，才转 float
+#         bfvt_for_summary = float(best_final_vehicle_max_times)
+
+#     # summary_data = {
+#     #     "instance_name": instance_name,
+#     #     "best_objective": float(best_objective) if best_objective is not None else None,
+#     #     "elapsed_time": float(elapsed_time) if elapsed_time is not None else None,
+#     #     "best_global_max_time": float(best_global_max_time) if best_global_max_time is not None else None,
+#     #     "len_y_cost": len(y_cost) if y_cost is not None else 0,
+#     #     "len_y_best": len(y_best) if y_best is not None else 0,
+#     #     "len_win_cost": len(win_cost) if win_cost is not None else 0,
+#     #     "len_uav_route_cost": len(uav_route_cost) if uav_route_cost is not None else 0,
+#     #     "len_vehicle_route_cost": len(vehicle_route_cost) if vehicle_route_cost is not None else 0,
+#     #     "strategy_weights": strategy_weights,
+#     #     "operator_weights": operator_weights,
+#     #     "best_vehicle_max_times": bvt_for_summary,
+#     #     "best_arrive_time_brief": {
+#     #         "num_vehicles": len(best_arrive_time),
+#     #         "total_records": sum(len(v) for v in best_arrive_time.items())
+#     #         if hasattr(best_arrive_time, "items")
+#     #         else sum(len(v) for v in best_arrive_time.values()),
+#     #     },
+#     #     "best_window_total_cost": float(best_window_total_cost) if best_window_total_cost is not None else None,
+#     #     "best_total_cost_dict": btcd_for_summary,
+#     #     "best_uav_tw_violation_cost": buv_for_summary,
+#     #     "best_state_total_cost_attr": getattr(best_state, "_total_cost", None),
+#     # }
+#     # === 新增: 最终方案曲线如果传进来是 numpy array / generator, 这里不强制转换，交给 _pad_list 统一处理 ===
+#     summary_data = {
+#         "instance_name": instance_name,
+#         "best_objective": float(best_objective) if best_objective is not None else None,
+#         "elapsed_time": float(elapsed_time) if elapsed_time is not None else None,
+#         "best_global_max_time": float(best_global_max_time) if best_global_max_time is not None else None,
+#         "len_y_cost": len(y_cost) if y_cost is not None else 0,
+#         "len_y_best": len(y_best) if y_best is not None else 0,
+#         "len_win_cost": len(win_cost) if win_cost is not None else 0,
+#         "len_uav_route_cost": len(uav_route_cost) if uav_route_cost is not None else 0,
+#         "len_vehicle_route_cost": len(vehicle_route_cost) if vehicle_route_cost is not None else 0,
+#         "strategy_weights": strategy_weights,
+#         "operator_weights": operator_weights,
+#         "best_vehicle_max_times": bvt_for_summary,
+#         "best_arrive_time_brief": {
+#             "num_vehicles": len(best_arrive_time),
+#             "total_records": sum(len(v) for v in best_arrive_time.items())
+#             if hasattr(best_arrive_time, "items")
+#             else sum(len(v) for v in best_arrive_time.values()),
+#         },
+#         "best_window_total_cost": float(best_window_total_cost) if best_window_total_cost is not None else None,
+#         "best_total_cost_dict": btcd_for_summary,
+#         "best_uav_tw_violation_cost": buv_for_summary,
+#         "best_state_total_cost_attr": getattr(best_state, "_total_cost", None),
+
+#         # === 新增: 最终方案标量指标写入 summary ===
+#         "best_final_uav_cost": float(best_final_uav_cost) if best_final_uav_cost is not None else None,
+#         "best_final_objective": float(best_final_objective) if best_final_objective is not None else None,
+#         "best_final_win_cost": float(best_final_win_cost) if best_final_win_cost is not None else None,
+#         "best_total_win_cost": float(best_total_win_cost) if best_total_win_cost is not None else None,
+#         # === [新增] ===
+#         "len_final_vehicle_route_cost": len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0,
+
+#         # === 新增: 完成时间相关最终标量 ===
+#         # "best_final_vehicle_max_times": float(best_final_vehicle_max_times) if best_final_vehicle_max_times is not None else None,
+#         "best_final_vehicle_max_times": bfvt_for_summary,   ### <--- [修改] 3. 使用处理后的变量
+#         "best_final_global_max_time": float(best_final_global_max_time) if best_final_global_max_time is not None else None,
+
+#         # === 新增: 最终方案曲线长度信息 ===
+#         "len_final_uav_cost": len(final_uav_cost) if final_uav_cost is not None else 0,
+#         "len_final_total_list": len(final_total_list) if final_total_list is not None else 0,
+#         "len_final_win_cost": len(final_win_cost) if final_win_cost is not None else 0,
+#         "len_final_total_objective": len(final_total_objective) if final_total_objective is not None else 0,
+#         "len_final_vehicle_route_cost": len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0, ### <--- [新增] 4. 记录长度
+#         "len_work_time": len(work_time) if work_time is not None else 0,
+#         "len_final_work_time": len(final_work_time) if final_work_time is not None else 0,
+#     }
+#     # =========================
+#     # 3. 保存概览到 TXT（统一 json-friendly）
+#     # =========================
+#     summary_txt_path = f"{prefix}_summary.txt"
+
+#     with open(summary_txt_path, "w", encoding="utf-8") as f:
+#         f.write("==== ALNS Result Summary ====\n")
+#         for k, v in summary_data.items():
+#             if isinstance(v, (dict, list)):
+#                 v_clean = make_json_friendly(v)
+#                 f.write(f"{k}:\n{json.dumps(v_clean, ensure_ascii=False, indent=2)}\n\n")
+#             else:
+#                 f.write(f"{k}: {v}\n")
+
+#     # =========================
+#     # 4. 保存曲线到 Excel
+#     # =========================
+#     curves_xlsx_path = f"{prefix}_curves.xlsx"
+
+#     def _pad_list(lst: List[Any], target_len: int) -> List[Any]:
+#         if lst is None:
+#             return [None] * target_len
+#         lst = list(lst)
+#         if len(lst) < target_len:
+#             lst = lst + [None] * (target_len - len(lst))
+#         return lst
+
+#     # max_len = max(
+#     #     len(y_cost),
+#     #     len(y_best),
+#     #     len(win_cost),
+#     #     len(uav_route_cost),
+#     #     len(vehicle_route_cost),
+#     # )
+#     # === 新增: 把最终方案曲线也考虑进最大长度 ===
+#     max_len = max(
+#         len(y_cost),
+#         len(y_best),
+#         len(win_cost),
+#         len(uav_route_cost),
+#         len(vehicle_route_cost),
+#         len(final_uav_cost) if final_uav_cost is not None else 0,
+#         len(final_total_list) if final_total_list is not None else 0,
+#         len(final_win_cost) if final_win_cost is not None else 0,
+#         len(final_total_objective) if final_total_objective is not None else 0,
+#         # === [新增] ===
+#         # len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0,
+#         len(final_vehicle_route_cost) if final_vehicle_route_cost is not None else 0, ### <--- [新增] 5. 加入最大长度计算
+#         len(work_time) if work_time is not None else 0,
+#         len(final_work_time) if final_work_time is not None else 0,
+#     )
+
+#     df_curves = pd.DataFrame({
+#         "iteration": list(range(max_len)),
+#         "y_cost": _pad_list(y_cost, max_len),
+#         "y_best": _pad_list(y_best, max_len),
+#         "win_cost": _pad_list(win_cost, max_len),
+#         "uav_route_cost": _pad_list(uav_route_cost, max_len),
+#         "vehicle_route_cost": _pad_list(vehicle_route_cost, max_len),
+#         # === 新增: 最终方案相关曲线 ===
+#         "final_uav_cost": _pad_list(final_uav_cost, max_len),
+#         "final_total_list": _pad_list(final_total_list, max_len),
+#         "final_win_cost": _pad_list(final_win_cost, max_len),
+#         "final_total_objective": _pad_list(final_total_objective, max_len),
+#         # === [新增] ===
+#         # "final_vehicle_route_cost": _pad_list(final_vehicle_route_cost, max_len),
+#         "final_vehicle_route_cost": _pad_list(final_vehicle_route_cost, max_len), ### <--- [新增] 6. 写入 DataFrame
+#         # === 新增: 完成时间曲线 ===
+#         "work_time": _pad_list(work_time, max_len),
+#         "final_work_time": _pad_list(final_work_time, max_len),
+#     })
+
+#     # 策略权重
+#     df_strategy_weights = pd.DataFrame(
+#         [{"strategy": k, "weight": v} for k, v in strategy_weights.items()]
+#     )
+
+#     # 算子权重展开
+#     op_rows = []
+#     for strat, group in operator_weights.items():
+#         for op_type, w_dict in group.items():
+#             for op_name, w in w_dict.items():
+#                 op_rows.append({
+#                     "strategy": strat,
+#                     "op_type": op_type,
+#                     "operator": op_name,
+#                     "weight": w,
+#                 })
+#     df_operator_weights = pd.DataFrame(op_rows)
+
+#     with pd.ExcelWriter(curves_xlsx_path) as writer:
+#         df_curves.to_excel(writer, sheet_name="curves", index=False)
+#         df_strategy_weights.to_excel(writer, sheet_name="strategy_weights", index=False)
+#         df_operator_weights.to_excel(writer, sheet_name="operator_weights", index=False)
+
+#     # =========================
+#     # 5. 保存 summary + 违约成本 + total_cost_dict
+#     # =========================
+#     summary_xlsx_path = f"{prefix}_summary.xlsx"
+
+#     # 每辆车完成时间：兼容 dict / 标量
+#     if best_vehicle_max_times is not None and hasattr(best_vehicle_max_times, "items"):
+#         # dict: {veh_id: time}
+#         df_vehicle_finish = pd.DataFrame(
+#             [
+#                 {"vehicle_id": vid, "completion_time": t}
+#                 for vid, t in best_vehicle_max_times.items()
+#             ]
+#         )
+#     else:
+#         # 标量：只知道“全局最大完成时间”，没有按车分开
+#         df_vehicle_finish = pd.DataFrame(
+#             [
+#                 {"vehicle_id": "all", "completion_time": best_vehicle_max_times}
+#             ]
+#         )
+
+#     # 时间窗惩罚细节（dict / defaultdict）
+#     if best_uav_tw_violation_cost is not None and hasattr(best_uav_tw_violation_cost, "items"):
+#         df_tw_violation = pd.DataFrame(
+#             [{"key": k, "violation_cost": float(v)} for k, v in best_uav_tw_violation_cost.items()]
+#         )
+#     else:
+#         df_tw_violation = pd.DataFrame(columns=["key", "violation_cost"])
+
+#     # total_cost_dict：defaultdict(float)
+#     if best_total_cost_dict is not None and hasattr(best_total_cost_dict, "items"):
+#         df_total_cost_dict = pd.DataFrame(
+#             [{"key": k, "value": float(v)} for k, v in best_total_cost_dict.items()]
+#         )
+#     else:
+#         df_total_cost_dict = pd.DataFrame(columns=["key", "value"])
+
+#     df_summary_scalar = pd.DataFrame(
+#         [
+#             {
+#                 "instance_name": instance_name,
+#                 "best_objective": best_objective,
+#                 "elapsed_time": elapsed_time,
+#                 "best_global_max_time": best_global_max_time,
+#                 "best_window_total_cost": best_window_total_cost,
+#                 "best_state_total_cost_attr": getattr(best_state, "_total_cost", None),
+#                 # === 新增: 最终方案标量指标也写到 summary sheet 里 ===
+#                 "best_final_uav_cost": best_final_uav_cost,
+#                 "best_final_objective": best_final_objective,
+#                 "best_final_win_cost": best_final_win_cost,
+#                 "best_total_win_cost": best_total_win_cost,
+#                 # === 新增: 完成时间相关最终标量 ===
+#                 # "best_final_vehicle_max_times": best_final_vehicle_max_times,
+#                 "best_final_vehicle_max_times": str(best_final_vehicle_max_times), ### <--- [修改] 7. 字典转字符串以避免写入错误
+#                 "best_final_global_max_time": best_final_global_max_time,
+#             }
+#         ]
+#     )
+
+#     with pd.ExcelWriter(summary_xlsx_path) as writer:
+#         df_summary_scalar.to_excel(writer, sheet_name="summary", index=False)
+#         df_vehicle_finish.to_excel(writer, sheet_name="vehicle_finish_time", index=False)
+#         df_tw_violation.to_excel(writer, sheet_name="tw_violation", index=False)
+#         df_total_cost_dict.to_excel(writer, sheet_name="total_cost_detail", index=False)
+
+#     # =========================
+#     # 6. best_arrive_time
+#     # =========================
+#     arrive_xlsx_path = f"{prefix}_best_arrive_time.xlsx"
+#     arrive_rows = []
+#     for vid, node_times in best_arrive_time.items():
+#         for node_id, t in node_times.items():
+#             arrive_rows.append(
+#                 {"vehicle_id": vid, "node_id": node_id, "arrive_time": t}
+#             )
+#     df_arrive = pd.DataFrame(arrive_rows)
+#     df_arrive.to_excel(arrive_xlsx_path, index=False, sheet_name="arrive_time")
+
+#     # =========================
+#     # 7. best_state 核心结构
+#     # =========================
+#     best_state_xlsx_path = f"{prefix}_best_state.xlsx"
+
+#     # 7.1 customer_plan
+#     cp_rows = []
+#     for cid, assign in best_state.customer_plan.items():
+#         row = {"customer_id": cid}
+#         if isinstance(assign, (list, tuple)):
+#             for i, v in enumerate(assign):
+#                 row[f"field_{i}"] = v
+#         else:
+#             row["assignment"] = assign
+#         cp_rows.append(row)
+#     df_customer_plan = pd.DataFrame(cp_rows)
+
+#     # 7.2 uav_cost
+#     uav_cost = getattr(best_state, "uav_cost", {})
+#     if isinstance(uav_cost, dict):
+#         df_uav_cost = pd.DataFrame(
+#             [{"uav_id": k, "cost": v} for k, v in uav_cost.items()]
+#         )
+#     else:
+#         df_uav_cost = pd.DataFrame(columns=["uav_id", "cost"])
+
+#     # 7.3 vehicle_routes：兼容 list / dict
+#     vr = getattr(best_state, "vehicle_routes", [])
+#     vr_rows = []
+#     if isinstance(vr, dict):
+#         for vid, route in vr.items():
+#             for idx, node in enumerate(route):
+#                 vr_rows.append(
+#                     {"vehicle_id": vid, "seq": idx, "node_id": node}
+#                 )
+#     else:
+#         for i, route in enumerate(vr):
+#             vid = i + 1
+#             for idx, node in enumerate(route):
+#                 vr_rows.append(
+#                     {"vehicle_id": vid, "seq": idx, "node_id": node}
+#                 )
+#     df_vehicle_routes = pd.DataFrame(vr_rows)
+
+#     # 7.4 uav_plan：结构不管，直接 json / repr
+#     uav_plan = getattr(best_state, "uav_plan", None)
+#     try:
+#         uav_plan_json = json.dumps(make_json_friendly(uav_plan), ensure_ascii=False)
+#     except TypeError:
+#         uav_plan_json = repr(uav_plan)
+#     df_uav_plan = pd.DataFrame([{"uav_plan_json": uav_plan_json}])
+
+#     # 7.5 scalar
+#     df_state_scalar = pd.DataFrame(
+#         [
+#             {
+#                 "_total_cost_attr": getattr(best_state, "_total_cost", None),
+#                 "objective_now": best_state.objective()
+#                 if hasattr(best_state, "objective")
+#                 else None,
+#             }
+#         ]
+#     )
+#     # === 新增: 7.6 保存最终方案的 final_uav_plan 详细信息 ===
+#     final_uav_plan = getattr(best_state, "final_uav_plan", None)
+
+#     with pd.ExcelWriter(best_state_xlsx_path) as writer:
+#         df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
+#         df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
+#         df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
+#         df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
+#         df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
+
+#         if final_uav_plan is not None:
+#             final_rows = []
+#             for key, info in final_uav_plan.items():
+#                 row = {}
+
+#                 # key 是 tuple: (drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle)
+#                 if isinstance(key, tuple) and len(key) >= 6:
+#                     row["key_drone_id"] = key[0]
+#                     row["key_launch_node"] = key[1]
+#                     row["key_customer"] = key[2]
+#                     row["key_recovery_node"] = key[3]
+#                     row["key_launch_vehicle"] = key[4]
+#                     row["key_recovery_vehicle"] = key[5]
+#                 else:
+#                     row["key_raw"] = str(key)
+
+#                 if isinstance(info, dict):
+#                     row["drone_id"] = info.get("drone_id")
+#                     row["launch_vehicle"] = info.get("launch_vehicle")
+#                     row["recovery_vehicle"] = info.get("recovery_vehicle")
+#                     row["launch_node"] = info.get("launch_node")
+#                     row["recovery_node"] = info.get("recovery_node")
+#                     row["customer"] = info.get("customer")
+#                     row["launch_time"] = info.get("launch_time")
+#                     row["recovery_time"] = info.get("recovery_time")
+#                     row["energy"] = info.get("energy")
+#                     row["cost"] = info.get("cost")
+#                     row["time"] = info.get("time")
+#                     row["uav_route_cost"] = info.get("uav_route_cost")
+#                     row["uav_time_cost"] = info.get("uav_time_cost")
+
+#                     route = info.get("uav_route")
+#                     try:
+#                         row["uav_route"] = json.dumps(make_json_friendly(route), ensure_ascii=False)
+#                     except Exception:
+#                         row["uav_route"] = str(route)
+
+#                     try:
+#                         row["uav_route_len"] = len(route) if route is not None else 0
+#                     except TypeError:
+#                         row["uav_route_len"] = None
+#                 else:
+#                     row["info_raw"] = str(info)
+
+#                 final_rows.append(row)
+
+#             df_final_uav = pd.DataFrame(final_rows)
+#             df_final_uav.to_excel(writer, sheet_name="final_uav_plan", index=False)
+#     # with pd.ExcelWriter(best_state_xlsx_path) as writer:
+#     #     df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
+#     #     df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
+#     #     df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
+#     #     df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
+#     #     df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
+
+#     print(f"[save_alns_results] 结果已保存到目录: {case_dir}")
 
 
 def update_init_vehicle_task_data(new_vehicle_task_data, state):

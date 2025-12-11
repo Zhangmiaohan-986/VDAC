@@ -410,3 +410,44 @@ def sort_customer_plans(customer_costs, plan_y, plan_time, plan_uav_route):
         plan_uav_route[customer] = [plan_uav_route[customer][idx] for idx in sorted_indices]
     
     return customer_costs, plan_y, plan_time, plan_uav_route
+
+
+def format_rm_empty_vehicle_arrive_time(final_vehicle_plan_time, vehicle_routes):
+    """
+    整理车辆到达时间数据：
+    1. 将 values 从 list [arrival, departure] 转换为 float arrival。
+    2. 按照 vehicle_routes 的节点访问顺序排列字典。
+    """
+    formatted_data = {}
+
+    # 遍历每一辆车的路线
+    # vehicle_routes 是一个列表的列表，索引对应车辆 (index 0 -> vehicle 1)
+    for i, route in enumerate(vehicle_routes):
+        v_id = i + 1  # 车辆 ID 通常从 1 开始
+        
+        # 如果 plan_time 中没有该车辆数据，跳过
+        if v_id not in final_vehicle_plan_time:
+            continue
+
+        formatted_data[v_id] = {}
+        
+        # 获取该车辆在 final_vehicle_plan_time 中的原始数据 (无序或乱序)
+        vehicle_times_source = final_vehicle_plan_time[v_id]
+
+        # 按照 route 的顺序重新构建字典
+        for node_id in route:
+            if node_id in vehicle_times_source:
+                raw_value = vehicle_times_source[node_id]
+                
+                # 核心处理：解决 TypeError 问题
+                # 如果是列表或元组，取第一个元素（到达时间）
+                if isinstance(raw_value, (list, tuple)):
+                    arrive_time = float(raw_value[0])
+                else:
+                    # 如果已经是数字，直接转 float
+                    arrive_time = float(raw_value)
+                
+                # 存入字典 (Python 3.7+ 字典保持插入顺序)
+                formatted_data[v_id][node_id] = arrive_time
+
+    return formatted_data

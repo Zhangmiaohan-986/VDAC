@@ -5375,6 +5375,7 @@ class IncrementalALNS:
         final_uav_cost = []  # 记录完成空中避障的适应度变化曲线
         final_total_list = []  # 记录完成空中避障的总成本变化曲线
         final_win_cost = []
+        final_vehicle_route_cost = []  # 记录完成空中避障的地面路线成本变化曲线
         final_total_objective = []
         work_time = []  # 不考虑空中交通拥堵的迭代次数排序
         final_work_time = []  # 考虑空中交通拥堵的迭代次数任务排序
@@ -5394,7 +5395,25 @@ class IncrementalALNS:
         current_state.vehicle_arrive_time = current_state.calculate_rm_empty_vehicle_arrive_time(current_state.vehicle_routes)
         # current_state.final_uav_plan, current_state.final_uav_cost, current_state.final_vehicle_plan_time, current_state.final_vehicle_task_data, current_state.final_global_reservation_table = current_state.re_update_time(current_state.rm_empty_vehicle_route, current_state.rm_empty_vehicle_arrive_time, current_state.vehicle_task_data, current_state)
         current_state.final_uav_plan, current_state.final_uav_cost, current_state.final_vehicle_plan_time, current_state.final_vehicle_task_data, current_state.final_global_reservation_table = current_state.re_update_time(current_state.vehicle_routes, current_state.vehicle_arrive_time, current_state.vehicle_task_data, current_state)
-        
+        final_vehicle_arrive_time = extract_arrive_time_from_plan(current_state.final_vehicle_plan_time)
+        final_vehicle_max_times, final_global_max_time = get_max_completion_time(final_vehicle_arrive_time)
+        final_work_time.append(final_global_max_time)
+        final_window_total_cost, final_uav_tw_violation_cost, final_total_cost_dict  = calculate_window_cost(current_state.customer_plan,
+                    current_state.final_uav_cost,
+                    final_vehicle_arrive_time,
+                    self.vehicle,
+                    self.customer_time_windows_h,
+                    self.early_arrival_cost,
+                    self.late_arrival_cost,
+                    self.uav_travel,
+                    self.node)
+        final_total_list.append(final_window_total_cost)
+        final_total_objective_value = current_state.update_calculate_plan_cost(final_total_cost_dict, current_state.vehicle_routes)
+        final_total_objective.append(final_total_objective_value)
+        final_vehicle_route_cost.append(final_total_objective_value - final_window_total_cost)  # 记录考虑空中避障场景下的车辆路径规划成本
+        best_final_objective = final_total_objective_value
+        final_current_objective = final_total_objective_value
+
         best_state = current_state.fast_copy()
         best_objective = current_state.destroyed_node_cost
         # current_state.vehicle_routes = [route.copy() for route in current_state.rm_empty_vehicle_route]
@@ -5418,6 +5437,8 @@ class IncrementalALNS:
         current_state._total_cost = current_state.update_calculate_plan_cost(current_total_cost_dict, current_state.vehicle_routes)
         uav_route_cost.append(current_window_total_cost - current_total_violation_cost)
         vehicle_route_cost.append(current_objective - current_window_total_cost)
+
+        final_best_objective = best_final_objective
         # 保存初始完成空中无人机避障航迹规划任务数据
         # final_vehicle_arrive_time = extract_arrive_time_from_plan(current_state.final_vehicle_plan_time)
         # finial_window_total_cost, finial_uav_tw_violation_cost, finial_total_cost_dict  = calculate_window_cost(current_state.customer_plan,
@@ -5613,9 +5634,13 @@ class IncrementalALNS:
             self.node)
             final_uav_cost.append(sum(repaired_state.final_uav_cost.values()))
             final_total_list.append(finial_window_total_cost)
-            final_win_cost.append(finial_uav_tw_violation_cost)
+            final_win_cost.append(sum(finial_uav_tw_violation_cost.values()))
             final_total_objective_value = repaired_state.update_calculate_plan_cost(finial_total_cost_dict, repaired_state.vehicle_routes)
             final_total_objective.append(final_total_objective_value)
+            final_vehicle_max_times, final_global_max_time = get_max_completion_time(final_vehicle_arrive_time)
+            final_work_time.append(final_global_max_time)
+            final_vehicle_route_cost.append(final_total_objective_value - finial_window_total_cost)  # 记录考虑空中避障场景下的车辆路径规划成本
+            final_new_objective = final_total_objective_value
 
             print(f"  > 成本变化: {current_objective:.2f} -> {new_objective:.2f}")
             # 2.3.1 根据KPI标准为本次行动打分
@@ -5632,6 +5657,22 @@ class IncrementalALNS:
             # 2.3.2 根据模拟退火决定是否接受新解
             if new_objective < current_objective or (score == self.reward_scores['accepted']):
                 accepted = True
+
+            # print(f"  > 成本变化: {final_current_objective:.2f} -> {final_new_objective:.2f}")
+            # # 2.3.1 根据KPI标准为本次行动打分
+            # if final_new_objective < final_best_objective:
+            #     score = self.reward_scores['new_best']
+            #     print(f"  > 结果: 发现新的全局最优解! 奖励 {score} 分。")
+            # elif final_new_objective < final_current_objective:
+            #     score = self.reward_scores['better_than_current']
+            #     print(f"  > 结果: 找到更优解。奖励 {score} 分。")
+            # elif self._simulated_annealing_accept(final_current_objective, final_new_objective, self.temperature):
+            #     score = self.reward_scores['accepted']
+            #     print(f"  > 结果: 接受一个较差解（探索成功）。奖励 {score} 分。")
+
+            # # 2.3.2 根据模拟退火决定是否接受新解
+            # if final_new_objective < final_current_objective or (score == self.reward_scores['accepted']):
+            #     accepted = True
             
             # =================================================================
             # 步骤 2.4: 学习与进化 - 更新两层权重
@@ -5669,18 +5710,45 @@ class IncrementalALNS:
                 # 不接受，状态自动保持为 prev_state (因为我们是在副本上操作)
                 # 无需像原来那样显式回滚
                 pass
+            # if accepted:
+            #     # 确保接受新解时清空破坏信息，避免传递到下一轮迭代
+            #     repaired_state.destroyed_customers_info = {}
+            #     current_state = repaired_state
+            #     final_current_objective = final_new_objective
+            if final_new_objective < final_best_objective: # 再次检查以更新最优状态
+                best_final_state = repaired_state.fast_copy()
+                final_best_objective = final_new_objective
+                best_final_uav_cost = sum(repaired_state.final_uav_cost.values())
+                best_final_objective = final_best_objective
+                best_final_win_cost = sum(finial_uav_tw_violation_cost.values())
+                best_final_vehicle_max_times = final_vehicle_max_times
+                best_final_global_max_time = final_global_max_time
+                best_total_win_cost = finial_window_total_cost
+                best_final_vehicle_route_cost = final_total_objective_value - finial_window_total_cost
+            else:
+                # 不接受，状态自动保持为 prev_state (因为我们是在副本上操作)
+                # 无需像原来那样显式回滚
+                pass
+
 
             # 温度衰减
             self.temperature *= cooling_rate
             y_cost.append(current_objective)
             
-            # 日志记录 (保留)
+            # # 日志记录 (保留)
             if iteration % 10 == 0:
                 elapsed_time = time.time() - start_time
                 print(f"  > 进度: 迭代 {iteration}, 当前成本: {current_objective:.2f}, 最优成本: {best_objective:.2f}, 运行时间: {elapsed_time:.2f}秒")
                 # 打印权重以供调试
                 print(f"  > 策略权重: {self.strategy_weights}")
                 print(f"  > 算子权重: {self.operator_weights}")
+            # 日志记录 (保留)
+            # if iteration % 10 == 0:
+            #     elapsed_time = time.time() - start_time
+            #     print(f"  > 进度: 迭代 {iteration}, 当前成本: {final_current_objective:.2f}, 最优成本: {final_best_objective:.2f}, 运行时间: {elapsed_time:.2f}秒")
+            #     # 打印权重以供调试
+            #     print(f"  > 策略权重: {self.strategy_weights}")
+            #     print(f"  > 算子权重: {self.operator_weights}")
             iteration += 1
 
         # elapsed_time = time.time() - start_time
@@ -5701,24 +5769,29 @@ class IncrementalALNS:
                           self.node)
         # 记录完成时间
         best_vehicle_max_times, best_global_max_time = get_max_completion_time(best_arrive_time)
-        best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_arrive_time, best_state.vehicle_task_data, best_state)
-        # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
-        # 添加更新空中无人机避障后的信息内容
-        best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_state.vehicle_arrive_time, best_state.vehicle_task_data, best_state)
-        best_final_window_total_cost, best_final_uav_tw_violation_cost, best_final_total_cost_dict  = calculate_window_cost(best_state.customer_plan,
-                best_state.final_uav_cost,
-                best_state.final_vehicle_plan_time,
-                self.vehicle,
-                self.customer_time_windows_h,
-                self.early_arrival_cost,
-                self.late_arrival_cost,
-                self.uav_travel,
-                self.node)
-        best_final_uav_cost = sum(best_state.final_uav_cost.values())
-        best_final_objective = best_state.update_calculate_plan_cost(best_final_total_cost_dict, best_state.vehicle_routes)
-        best_final_win_cost = sum(best_final_uav_tw_violation_cost.values())
-        best_total_win_cost = best_final_window_total_cost
-        best_final_vehicle_max_times, best_final_global_max_time = get_max_completion_time(best_state.final_vehicle_plan_time)
+        # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_arrive_time, best_state.vehicle_task_data, best_state)
+        # # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
+        # # 添加更新空中无人机避障后的信息内容
+        # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_state.vehicle_arrive_time, best_state.vehicle_task_data, best_state)
+        # best_state_final_vehicle_arrive_time = format_rm_empty_vehicle_arrive_time(
+        #     best_state.final_vehicle_plan_time, 
+        #     best_state.vehicle_routes
+        # )
+        # best_arrive_time = best_state.rm_empty_vehicle_arrive_time
+        # best_final_window_total_cost, best_final_uav_tw_violation_cost, best_final_total_cost_dict  = calculate_window_cost(best_state.customer_plan,
+        #         best_state.final_uav_cost,
+        #         best_state_final_vehicle_arrive_time,
+        #         self.vehicle,
+        #         self.customer_time_windows_h,
+        #         self.early_arrival_cost,
+        #         self.late_arrival_cost,
+        #         self.uav_travel,
+        #         self.node)
+        # best_final_uav_cost = sum(best_state.final_uav_cost.values())
+        # best_final_objective = best_state.update_calculate_plan_cost(best_final_total_cost_dict, best_state.vehicle_routes)
+        # best_final_win_cost = sum(best_final_uav_tw_violation_cost.values())
+        # best_total_win_cost = best_final_window_total_cost
+        # best_final_vehicle_max_times, best_final_global_max_time = get_max_completion_time(best_state_final_vehicle_arrive_time)
         # 保存运行数据
         save_alns_results(
             instance_name="case_001",  # 换成你实际的算例名
@@ -5743,15 +5816,18 @@ class IncrementalALNS:
             best_final_objective=best_final_objective,
             best_final_win_cost=best_final_win_cost,
             best_total_win_cost=best_total_win_cost,
+            best_final_vehicle_route_cost=best_final_vehicle_route_cost,
             final_uav_cost=final_uav_cost,
             final_total_list=final_total_list,
             final_win_cost=final_win_cost,
             final_total_objective=final_total_objective,
+            final_vehicle_route_cost=final_vehicle_route_cost,
             # 新增完成时间维度参数
-            best_final_vehicle_max_times=None,      # 最终方案下车辆完成时间（标量）
-            best_final_global_max_time=None,        # 最终方案下全局最大完成时间（标量）
-            work_time=None,                         # 每一代当前解完成时间 list
-            final_work_time=None,                   # 每一代最终方案完成时间 list
+            best_final_vehicle_max_times=best_final_vehicle_max_times,      # 最终方案下车辆完成时间（标量）
+            best_final_global_max_time=best_final_global_max_time,        # 最终方案下全局最大完成时间（标量）
+            work_time=work_time,                         # 每一代当前解完成时间 list
+            final_work_time=final_work_time,                   # 每一代最终方案完成时间 list
+            best_final_state=best_final_state,
         )
         print(f"ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
         return best_state, best_objective, statistics
