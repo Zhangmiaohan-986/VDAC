@@ -1103,6 +1103,7 @@ import json
 from typing import Any, Dict, List
 import pandas as pd
 
+
 def save_alns_results(
     instance_name: str,
     y_best,
@@ -1127,7 +1128,7 @@ def save_alns_results(
     best_final_win_cost=None,
     best_total_win_cost=None,
     # === [新增] 在此处添加 best_final_vehicle_route_cost ===
-    best_final_vehicle_route_cost=None, ### <--- [新增] 1. 参数: 最终车辆路径成本 (float)
+    best_final_vehicle_route_cost=None, 
     
     # === 新增: 最终方案全过程曲线 ===
     final_uav_cost=None,
@@ -1142,7 +1143,7 @@ def save_alns_results(
     final_work_time=None,
     
     # === [新增] 在此处添加 best_final_state ===
-    best_final_state=None,              ### <--- [新增] 2. 参数: 最终状态对象 (State)
+    best_final_state=None,              
     
     base_dir: str = r"VDAC\saved_solutions",
 ) -> None:
@@ -1228,8 +1229,8 @@ def save_alns_results(
         "best_total_win_cost": float(best_total_win_cost) if best_total_win_cost is not None else None,
         
         # === [新增] ===
-        "best_final_vehicle_route_cost": float(best_final_vehicle_route_cost) if best_final_vehicle_route_cost is not None else None, ### <--- [新增] 3. 记录到 summary
-        "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state is not None else None, ### <--- [新增] 4. 记录最终状态总成本
+        "best_final_vehicle_route_cost": float(best_final_vehicle_route_cost) if best_final_vehicle_route_cost is not None else None,
+        "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state else None,
 
         "best_final_vehicle_max_times": bfvt_for_summary,
         "best_final_global_max_time": float(best_final_global_max_time) if best_final_global_max_time is not None else None,
@@ -1371,8 +1372,8 @@ def save_alns_results(
                 "best_final_win_cost": best_final_win_cost,
                 "best_total_win_cost": best_total_win_cost,
                 
-                "best_final_vehicle_route_cost": best_final_vehicle_route_cost, ### <--- [新增] 5. 将 best_final_vehicle_route_cost 写入 Excel summary
-                "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state else None, ### <--- [新增] 6. 最终状态总成本
+                "best_final_vehicle_route_cost": best_final_vehicle_route_cost,
+                "best_final_state_total_cost_attr": getattr(best_final_state, "_total_cost", None) if best_final_state else None,
                 
                 "best_final_vehicle_max_times": str(best_final_vehicle_max_times),
                 "best_final_global_max_time": best_final_global_max_time,
@@ -1403,14 +1404,120 @@ def save_alns_results(
     # =========================
     # 7. best_state 核心结构 (原始最优解)
     # =========================
-    # ... (这部分是保存 best_state 的，保持不变) ...
+    ### [修正] 这里不再调用 _save_state_to_excel，而是直接展开保存逻辑 ###
     best_state_xlsx_path = f"{prefix}_best_state.xlsx"
-    _save_state_to_excel(best_state, best_state_xlsx_path) # 为了代码简洁，我将保存逻辑抽象了一下，但你的代码里可以直接保留原样
+    
+    # 7.1 customer_plan
+    cp_rows = []
+    for cid, assign in best_state.customer_plan.items():
+        row = {"customer_id": cid}
+        if isinstance(assign, (list, tuple)):
+            for i, v in enumerate(assign):
+                row[f"field_{i}"] = v
+        else:
+            row["assignment"] = assign
+        cp_rows.append(row)
+    df_customer_plan = pd.DataFrame(cp_rows)
+
+    # 7.2 uav_cost
+    uav_cost = getattr(best_state, "uav_cost", {})
+    if isinstance(uav_cost, dict):
+        df_uav_cost = pd.DataFrame(
+            [{"uav_id": k, "cost": v} for k, v in uav_cost.items()]
+        )
+    else:
+        df_uav_cost = pd.DataFrame(columns=["uav_id", "cost"])
+
+    # 7.3 vehicle_routes
+    vr = getattr(best_state, "vehicle_routes", [])
+    vr_rows = []
+    if isinstance(vr, dict):
+        for vid, route in vr.items():
+            for idx, node in enumerate(route):
+                vr_rows.append(
+                    {"vehicle_id": vid, "seq": idx, "node_id": node}
+                )
+    else:
+        for i, route in enumerate(vr):
+            vid = i + 1
+            for idx, node in enumerate(route):
+                vr_rows.append(
+                    {"vehicle_id": vid, "seq": idx, "node_id": node}
+                )
+    df_vehicle_routes = pd.DataFrame(vr_rows)
+
+    # 7.4 uav_plan
+    uav_plan = getattr(best_state, "uav_plan", None)
+    try:
+        uav_plan_json = json.dumps(make_json_friendly(uav_plan), ensure_ascii=False)
+    except TypeError:
+        uav_plan_json = repr(uav_plan)
+    df_uav_plan = pd.DataFrame([{"uav_plan_json": uav_plan_json}])
+
+    # 7.5 scalar
+    df_state_scalar = pd.DataFrame(
+        [
+            {
+                "_total_cost_attr": getattr(best_state, "_total_cost", None),
+                "objective_now": best_state.objective()
+                if hasattr(best_state, "objective")
+                else None,
+            }
+        ]
+    )
+    
+    # 7.6 final_uav_plan (如果 best_state 中已经包含此信息)
+    final_uav_plan_data_bs = getattr(best_state, "final_uav_plan", None)
+
+    with pd.ExcelWriter(best_state_xlsx_path) as writer:
+        df_customer_plan.to_excel(writer, sheet_name="customer_plan", index=False)
+        df_uav_cost.to_excel(writer, sheet_name="uav_cost", index=False)
+        df_vehicle_routes.to_excel(writer, sheet_name="vehicle_routes", index=False)
+        df_uav_plan.to_excel(writer, sheet_name="uav_plan_raw", index=False)
+        df_state_scalar.to_excel(writer, sheet_name="state_scalar", index=False)
+
+        if final_uav_plan_data_bs is not None:
+            final_rows_bs = []
+            for key, info in final_uav_plan_data_bs.items():
+                row = {}
+                if isinstance(key, tuple) and len(key) >= 6:
+                    row["key_drone_id"] = key[0]
+                    row["key_launch_node"] = key[1]
+                    row["key_customer"] = key[2]
+                    row["key_recovery_node"] = key[3]
+                    row["key_launch_vehicle"] = key[4]
+                    row["key_recovery_vehicle"] = key[5]
+                else:
+                    row["key_raw"] = str(key)
+
+                if isinstance(info, dict):
+                    for field in ["drone_id", "launch_vehicle", "recovery_vehicle", 
+                                  "launch_node", "recovery_node", "customer", 
+                                  "launch_time", "recovery_time", "energy", 
+                                  "cost", "time", "uav_route_cost", "uav_time_cost"]:
+                        row[field] = info.get(field)
+                    
+                    route = info.get("uav_route")
+                    try:
+                        row["uav_route"] = json.dumps(make_json_friendly(route), ensure_ascii=False)
+                    except Exception:
+                        row["uav_route"] = str(route)
+                    
+                    try:
+                        row["uav_route_len"] = len(route) if route is not None else 0
+                    except TypeError:
+                        row["uav_route_len"] = None
+                else:
+                    row["info_raw"] = str(info)
+                final_rows_bs.append(row)
+            
+            df_final_uav_bs = pd.DataFrame(final_rows_bs)
+            df_final_uav_bs.to_excel(writer, sheet_name="final_uav_plan", index=False)
+
 
     # =========================
     # 8. [新增] best_final_state 核心结构 (最终修正解)
     # =========================
-    ### <--- [新增] 7. 整个 Block 用于保存 best_final_state
     if best_final_state is not None:
         best_final_state_xlsx_path = f"{prefix}_best_final_state.xlsx"
         
@@ -1526,6 +1633,7 @@ def save_alns_results(
         print(f"[save_alns_results] best_final_state 已保存到: {best_final_state_xlsx_path}")
 
     print(f"[save_alns_results] 结果已保存到目录: {case_dir}")
+
 
 # def save_alns_results(
 #     instance_name: str,

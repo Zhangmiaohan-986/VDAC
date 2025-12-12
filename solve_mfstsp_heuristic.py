@@ -82,7 +82,7 @@ class make_packages:
 
 
 # def solve_mfstsp_heuristic(node, vehicle, travel, problemName, vehicleFileID, numUAVs, UAVSpeedType):
-def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost):
+def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -181,7 +181,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		sigmaprime[k] = node[k].serviceTimeUAV/60
 	
 	# 上述内容将基础参数全部处理完成，随后开始仿真实验处理
-	iter_num = 10 # 仿真实验次数,便于计算平均值等方案
+	iter_num = 20 # 仿真实验次数,便于计算平均值等方案
 	# 初始化多次试验的仿真实验结果
 	best_total_cost_list = np.array([])
 	best_uav_plan_list = []
@@ -206,7 +206,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID,
 		 V, T, vehicle, uav_travel, veh_distance, veh_travel, 
 		N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost)
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, numPoints, numTrucks, numUAVs)
 		# # 处理空跑节点
 		# rm_empty_vehicle_route, empty_nodes_by_vehicle = rm_empty_node(init_customer_plan, init_vehicle_route)
 		# rm_empty_node_cost = calculate_plan_cost(init_uav_plan, rm_empty_vehicle_route, vehicle, T, V, veh_distance)
@@ -224,21 +224,19 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			customer_time_windows_h, early_arrival_cost, late_arrival_cost
 		)
 		
-		# 使用高效ALNS求解（增量式算法，避免深拷贝）
-		best_solution, best_objective, statistics = solve_with_fast_alns(
+		# 使用高效ALNS求解（增量式算法，避免深拷贝）,输出最佳方案结果，并保存到文件中
+		H_alns_solution, H_alns_objective = solve_with_fast_alns(
 		initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,
-		max_iterations=50, max_runtime=30, use_incremental=True
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,problemName,
+		iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
 		)
+		# best_solution, best_objective, statistics = solve_with_fast_alns(
+		# initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		# A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,problemName,
+		# iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
+		# )
+		print(f"H-ALNS求解完成。")
 		
-		print(f"ALNS求解结果 - 总成本: {best_objective}")
-		
-		# # 提取ALNS优化后的结果
-		# alns_vehicle_routes = best_solution.vehicle_routes
-		# alns_uav_assignments = best_solution.uav_assignments
-		# alns_customer_plan = best_solution.customer_plan
-		# alns_vehicle_task_data = best_solution.vehicle_task_data
-		# alns_global_reservation_table = best_solution.global_reservation_table
 		
 
 		

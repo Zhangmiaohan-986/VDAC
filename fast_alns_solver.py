@@ -705,8 +705,8 @@ class IncrementalALNS:
     def __init__(self, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, 
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
-        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,
-        max_iterations=50, max_runtime=60):
+        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter, max_iterations, max_runtime=60):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -733,10 +733,14 @@ class IncrementalALNS:
         self.customer_time_windows_h = customer_time_windows_h
         self.early_arrival_cost = early_arrival_cost
         self.late_arrival_cost = late_arrival_cost
+        self.iter = iter # 获得仿真实验次数
+        self.problemName = problemName # 获得问题名称
         # self.max_iterations = max_iterations
-        self.max_iterations = 500
-        self.temperature = 500.0
-        self.initial_temperature = 500.0
+        self.max_iterations = max_iterations
+        self.temperature = max_iterations
+        self.initial_temperature = max_iterations
+        # self.temperature = 500.0
+        # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
         self.rng = rnd.default_rng(42)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
@@ -5794,7 +5798,7 @@ class IncrementalALNS:
         # best_final_vehicle_max_times, best_final_global_max_time = get_max_completion_time(best_state_final_vehicle_arrive_time)
         # 保存运行数据
         save_alns_results(
-            instance_name="case_001",  # 换成你实际的算例名
+            instance_name=self.problemName + "_" + str(self.iter),  # 换成你实际的算例名
             y_best=y_best,
             y_cost=y_cost,
             win_cost=win_cost,
@@ -5830,7 +5834,7 @@ class IncrementalALNS:
             best_final_state=best_final_state,
         )
         print(f"ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
-        return best_state, best_objective, statistics
+        return best_state, best_objective
 
     def _roulette_wheel_select(self, weights):
         """
@@ -8307,8 +8311,8 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
 
 
 def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,
-        max_iterations, max_runtime=60, use_incremental=True):
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter, max_iterations, max_runtime=60, use_incremental=True):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8326,16 +8330,16 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
         alns_solver = IncrementalALNS(node, DEPOT_nodeID, V, T, vehicle, uav_travel, 
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
-        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,
-        max_iterations, max_runtime=max_runtime)
+        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)
     
     # 使用ALNS求解
-    best_solution, best_objective, statistics = alns_solver.solve(initial_solution)
+    best_solution, best_objective = alns_solver.solve(initial_solution)
     
-    return best_solution, best_objective, statistics 
+    return best_solution, best_objective 
 
 
 # --- 核心：定义概率选择函数 ---

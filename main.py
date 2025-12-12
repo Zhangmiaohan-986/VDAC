@@ -1,28 +1,5 @@
 #!/usr/bin/env python
 
-# INSTALLING ADDITIONAL PYTHON MODULES:
-#
-# pandas:
-#	sudo pip install pandas
-
-
-
-# RUNNING THIS SCRIPT:
-
-# python main.py <problemName> <vehicleFileID> <UAVSpeedType> <numUAVs> <numTrucks>
-
-# problemName: Name of the folder containing the data for a particular problem instance
-# vehicleFileID: 101, 102, 103, 104 (Chooses a particular UAV type depending on the file ID)
-# UAVSpeedType: 1 (variable), 2 (maximum), or 3 (maximum-range)
-# numUAVs: Number of UAVs available in the problem
-# numTrucks: Number of trucks available in the problem (currently only solvable for 1 truck)
-
-# An example - Solving the mFSTSP-VDS:
-#    python main.py 20170608T121632668184 101 1 3 -1
-#		numTrucks is ignored
-#		The UAVs are defined in tbl_vehicles.  If you ask for more UAVs than are defined, you'll get a warning.
-
-
 import sys
 import datetime
 import time
@@ -65,7 +42,7 @@ TYPE_TRUCK 		= 1
 TYPE_UAV 		= 2
 
 # NUM_POINTS = 50
-NUM_POINTS = 100
+# NUM_POINTS = 100
 SEED = 6
 Z_COORD = 0.05  # 规划无人机空中高度情况
 UAV_DISTANCE = 15
@@ -255,46 +232,78 @@ def merge_and_renumber_dicts(air_node_types, ground_node_types):
 # {0: "airplane", 1: "drone", 2: "tank", 3: "truck"}
 
 class missionControl():
-	def __init__(self):
+	def __init__(self,config=None):
 		
 		timestamp = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d %H:%M:%S')
 		# 获取基准路径（建议在类外部定义）
 		self.base_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件绝对路径的目录
-		if (len(sys.argv) == 6):  # 给出各种参数，包括无人机数量
-			problemName 		= sys.argv[1]
-			vehicleFileID		= int(sys.argv[2])
-			UAVSpeedType 		= int(sys.argv[3])
-			# numUAVs				= int(sys.argv[4])
-			# numTrucks			= int(sys.argv[5])
-			# 使用 os.path.join 构建跨平台兼容路径
-			self.locationsFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_locations.csv')
-			# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_{vehicleFileID}.csv')
-			self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
-			self.distmatrixFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_truck_travel_data_PG.csv')
-			# self.solutionSummaryFile = os.path.join(
-			# 	self.base_dir, 'Problems', problemName, 
-			# 	f'tbl_solutions_{vehicleFileID}_{numUAVs}_{UAVSpeedTypeString[UAVSpeedType]}.csv'
-			# )
+		# if (len(sys.argv) == 6):  # 给出各种参数，包括无人机数量
+		# 	problemName 		= sys.argv[1]
+		# 	vehicleFileID		= int(sys.argv[2])
+		# 	UAVSpeedType 		= int(sys.argv[3])
+		# 	# numUAVs				= int(sys.argv[4])
+		# 	# numTrucks			= int(sys.argv[5])
+		# 	# 使用 os.path.join 构建跨平台兼容路径
+		# 	# self.locationsFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_locations.csv')
+		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_{vehicleFileID}.csv')
+		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
+		# 	# self.distmatrixFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_truck_travel_data_PG.csv')
+		# 	# self.solutionSummaryFile = os.path.join(
+		# 	# 	self.base_dir, 'Problems', problemName, 
+		# 	# 	f'tbl_solutions_{vehicleFileID}_{numUAVs}_{UAVSpeedTypeString[UAVSpeedType]}.csv'
+		# 	# )
+		# else:
+		# 	print(f'ERROR: Expected 5 parameters, got {len(sys.argv)-1}.')
+		# 	quit()	
+		# 如果传入了 config 字典，使用 config 中的参数；否则使用默认值
+		if config:
+			self.problemName = config.get('problem_name', 'case_001') # 或者从 config 读
+			numUAVs = config.get('num_uavs', 6)       # 动态获取无人机数
+			numTrucks = config.get('num_trucks', 3)   # 动态获取卡车数
+			per_uav_cost = config.get('per_uav_cost', 1) # 动态获取无人机每公里成本
+			per_vehicle_cost = config.get('per_vehicle_cost', 2) # 动态获取卡车每公里成本
+			early_arrival_cost = config.get('early_arrival_cost', [5, 0.083]) # 动态获取提前惩罚成本
+			late_arrival_cost = config.get('late_arrival_cost', [20, 0.333]) # 动态获取迟到惩罚成本
+			max_Drones = config.get('max_drones', 10) # 动态获取无人机最大数量
+			num_points = config.get('num_points', 100) # 动态获取节点数量
+			self.max_iterations = config.get('iterations', 500) # 动态获取迭代次数
+			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
+			self.vehicleFileID = 1 # 假设默认
+			UAVSpeedType = 1
 		else:
-			print(f'ERROR: Expected 5 parameters, got {len(sys.argv)-1}.')
-			quit()	
+		# 保留你原来的 sys.argv 逻辑作为备用，或者直接写死默认值
+			self.problemName = "case_001"
+			numUAVs = 6
+			numTrucks = 3
+			per_uav_cost = 1
+			per_vehicle_cost = 2
+			max_Drones = 10
+			num_points = 100
+			early_arrival_cost = [5, 0.083] # 提前惩罚成本，分别是小时和分钟为单位惩罚成本
+			late_arrival_cost = [20, 0.333] # 迟到惩罚成本，分别是小时和分钟为单位惩罚成本
+			self.max_iterations = 50
+			self.instance_name = "case_001" # 默认名称
+			self.vehicleFileID = 1
+			UAVSpeedType = 1
+
+		self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
+		
 		# 参数输入设置
-		num_points = 100
+		# num_points = 100
 		seed = 6
 		Z_coord = 0.05  # 空中走廊高度
 		uav_distance = 15  # 无人机最远飞行距离
-		numUAVs = 6  # 无人机数量
-		UAVSpeedType = 1
-		numTrucks = 3  # 卡车数量，在此处修改卡车数量和无人机
+		# numUAVs = 6  # 无人机数量
+		# UAVSpeedType = 1
+		# numTrucks = 3  # 卡车数量，在此处修改卡车数量和无人机
 		# per_uav_cost = 1  # 每公里成本
-		per_uav_cost = 1  # 每公里成本
-		# per_vehicle_cost = 1  # 每公里成本
-		per_vehicle_cost = 2  # 每公里成本
-		max_Drones = 10  # 无人机最大数量
+		# per_uav_cost = 1  # 每公里成本
+		# per_vehicle_cost = 2  # 每公里成本
+		# max_Drones = 10  # 无人机最大数量,最大不超过十架次无人机
 		# 提前到达惩罚成本-km、h
-		early_arrival_cost = [5, 0.083] # 提前惩罚成本，分别是小时和分钟为单位惩罚成本
+		# early_arrival_cost = [5, 0.083] # 提前惩罚成本，分别是小时和分钟为单位惩罚成本
 		# 迟到惩罚成本-km、h
-		late_arrival_cost = [20, 0.333] # 迟到惩罚成本，分别是小时和分钟为单位惩罚成本
+		# late_arrival_cost = [20, 0.333] # 迟到惩罚成本，分别是小时和分钟为单位惩罚成本
 		self.early_arrival_cost = early_arrival_cost
 		self.late_arrival_cost = late_arrival_cost
 		# Define data structures
@@ -303,9 +312,9 @@ class missionControl():
 		self.uav_travel = defaultdict(make_dict) # 创建一个默认字典，用于存储车辆之间的旅行时间矩阵
 		self.veh_travel = defaultdict(make_dict) # 创建一个默认字典，用于存储车辆之间的旅行时间矩阵
 		self.veh_distance = defaultdict(make_dict) # 创建一个默认字典，用于存储车辆之间的距离矩阵
-
+		self.num_points = num_points
 		# Read data for node locations, vehicle properties, and travel time matrix of truck:
-		self.readData(numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones) # 读取节点位置、车辆属性以及卡车旅行时间矩阵
+		self.readData(numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones, num_points) # 读取节点位置、车辆属性以及卡车旅行时间矩阵
 		# 计算无人机之间的旅行时间矩阵
 		for vehicleID in self.vehicle:
 			if (self.vehicle[vehicleID].vehicleType == TYPE_UAV):
@@ -344,112 +353,11 @@ class missionControl():
 		print('Calling a Heuristic to solve VDCD-AC...')
 		# 调用启发式算法解决mFSTSP-VDS问题
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
-		[objVal, assignments, packages, costTruck, costUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
-		print('The mFSTSP-VDS Heuristic is Done.  It returned something')
-		numUAVcust			= 0
-		numTruckCust		= 0		
-		for nodeID in packages:
-			if (self.node[nodeID].nodeType == NODE_TYPE_CUST):
-				if (packages[nodeID].packageType == TYPE_UAV):
-					numUAVcust		+= 1
-				else:
-					numTruckCust	+= 1
-
-			
-		# Write in the performance_summary file:
-		total_time = time.time() - startTime
-		print("Total time for the whole process: %f" % (total_time))
-		print("Objective Function Value: %f" % (objVal))
-
-		runString = ' '.join(sys.argv[0:])
-
-		myFile = open('performance_summary.csv','a')
-		str = '%s, %d, %d, %s, %d,' % (problemName, vehicleFileID, numUAVs, UAVSpeedTypeString[UAVSpeedType], numTrucks)
-		myFile.write(str)
-
-		numCustomers = len(self.node) - 2
-		str = '%d, %s, %f, %f, %d, %d, %f, %f \n' % (numCustomers, timestamp, objVal, total_time, numUAVcust, numTruckCust, waitingTruck, waitingUAV)
-		myFile.write(str)
-					
-		myFile.close()
-		print("\nSee 'performance_summary.csv' for statistics.\n")
-
-
-		# Write in the solution file:
-		myFile = open(self.solutionSummaryFile, 'a')
-		myFile.write('problemName,vehicleFileID,UAVSpeedType,numUAVs,numTrucks \n')
-		str = '%s, %d, %s, %d, %d \n\n' % (problemName, vehicleFileID, UAVSpeedTypeString[UAVSpeedType], numUAVs, numTrucks)
-		myFile.write(str)
-
-		myFile.write('Objective Function Value: %f \n\n' % (objVal))
-		myFile.write('Assignments: \n')
-
-		myFile.close()
-
-		# Create a dataframe to sort assignments according to their start times:
-		assignDF = pd.DataFrame(columns=['vehicleID', 'vehicleType', 'activityType', 'startTime', 'startNode', 'endTime', 'endNode', 'Description', 'Status'])
-		indexDF = 1
-
-		for v in assignments:
-			for statusID in assignments[v]:
-				for statusIndex in assignments[v][statusID]:
-					if (assignments[v][statusID][statusIndex].vehicleType == TYPE_TRUCK):
-						vehicleType = 'Truck'
-					else:
-						vehicleType = 'UAV'
-					if (statusID == TRAVEL_UAV_PACKAGE):
-						status = 'UAV travels with parcel'
-					elif (statusID == TRAVEL_UAV_EMPTY):
-						status = 'UAV travels empty'
-					elif (statusID == TRAVEL_TRUCK_W_UAV):
-						status = 'Truck travels with UAV(s) on board'
-					elif (statusID == TRAVEL_TRUCK_EMPTY):
-						status = 'Truck travels with no UAVs on board'
-					elif (statusID == VERTICAL_UAV_EMPTY):
-						status = 'UAV taking off or landing with no parcels'
-					elif (statusID == VERTICAL_UAV_PACKAGE):
-						status = 'UAV taking off or landing with a parcel'
-					elif (statusID == STATIONARY_UAV_EMPTY):
-						status = 'UAV is stationary without a parcel'
-					elif (statusID == STATIONARY_UAV_PACKAGE):
-						status = 'UAV is stationary with a parcel'
-					elif (statusID == STATIONARY_TRUCK_W_UAV):
-						status = 'Truck is stationary with UAV(s) on board'
-					elif (statusID == STATIONARY_TRUCK_EMPTY):
-						status = 'Truck is stationary with no UAVs on board'
-					else:
-						print('UNKNOWN statusID.')
-						quit()
-
-					
-					if (assignments[v][statusID][statusIndex].ganttStatus == GANTT_IDLE):
-						ganttStr = 'Idle'
-					elif (assignments[v][statusID][statusIndex].ganttStatus == GANTT_TRAVEL):
-						ganttStr = 'Traveling'
-					elif (assignments[v][statusID][statusIndex].ganttStatus == GANTT_DELIVER):
-						ganttStr = 'Making Delivery'
-					elif (assignments[v][statusID][statusIndex].ganttStatus == GANTT_RECOVER):
-						ganttStr = 'UAV Recovery'
-					elif (assignments[v][statusID][statusIndex].ganttStatus == GANTT_LAUNCH):
-						ganttStr = 'UAV Launch'
-					elif (assignments[v][statusID][statusIndex].ganttStatus == GANTT_FINISHED):
-						ganttStr = 'Vehicle Tasks Complete'
-					else:
-						print('UNKNOWN ganttStatus')
-						quit()
-					
-					assignDF.loc[indexDF] = [v, vehicleType, status, assignments[v][statusID][statusIndex].startTime, assignments[v][statusID][statusIndex].startNodeID, assignments[v][statusID][statusIndex].endTime, assignments[v][statusID][statusIndex].endNodeID, assignments[v][statusID][statusIndex].description, ganttStr]	
-					indexDF += 1
-		
-		assignDF = assignDF.sort_values(by=['vehicleID', 'startTime'])
-
-		# Add this assignment dataframe to the solution file:
-		assignDF.to_csv(self.solutionSummaryFile, mode='a', header=True, index=False)
-		
-		print("\nSee '%s' for solution summary.\n" % (self.solutionSummaryFile))
+		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations)
+		print('所有任务完成')
 
 	# 读取车辆数据
-	def readData(self, numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones): # 读取车辆数据
+	def readData(self, numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones, num_points): # 读取车辆数据
 		# b)  tbl_vehicles.csv
 		tmpUAVs = 0
 		tmpTrucks = 0
@@ -490,7 +398,7 @@ class missionControl():
 
 		# a)  tbl_locations.csv
 		# 获得空中地面图，空地距离矩阵，位置和节点类型，及所有数据集合。
-		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(NUM_POINTS, SEED, Z_COORD, UAV_DISTANCE)
+		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE)
 		# 读取节点位置，类型数据
 		# 使用字典构造函数
 		air_ground_node_types =  merge_and_renumber_dicts(air_node_types, ground_node_types)
