@@ -333,35 +333,6 @@ from collections import defaultdict
 from collections import defaultdict
 import copy
 
-# def deep_copy_vehicle_task_data(vehicle_data):
-#     """
-#     针对vehicle_task_data的专用深拷贝函数
-    
-#     Args:
-#         vehicle_data: 嵌套的defaultdict结构，包含vehicle_task对象
-        
-#     Returns:
-#         完全独立的数据副本，修改不会影响原始数据
-#     """
-#     # 保存原始defaultdict的factory函数
-#     factory_func = vehicle_data.default_factory
-    
-#     # 创建新的顶层defaultdict
-#     result = defaultdict(factory_func)
-    
-#     # 遍历所有车辆ID
-#     for vehicle_id, tasks_dict in vehicle_data.items():
-#         # 为每个车辆创建新的内层defaultdict
-#         inner_factory = tasks_dict.default_factory
-#         vehicle_dict = defaultdict(inner_factory)
-#         result[vehicle_id] = vehicle_dict
-        
-#         # 复制每个任务节点
-#         for task_id, task_obj in tasks_dict.items():
-#             # 对task对象进行深度复制 - 这是关键点
-#             vehicle_dict[task_id] = copy.deepcopy(task_obj)
-    
-#     return result
 
 # 假设 make_dict 函数在当前作用域内可用
 def make_dict():

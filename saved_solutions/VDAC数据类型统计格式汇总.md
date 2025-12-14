@@ -36,3 +36,9 @@ elapsed_time：完成算法运算的所有时间。
 
 best_global_max_time：最优方案的整体任务完成时间。
 
+best_window_total_cost：最优的方案中不考虑空中走廊冲突的时间窗惩罚成本+无人机路径
+
+best_total_uav_tw_violation_cost:最优方案中不考虑空中走廊冲突的无人机违背惩罚成本情况。
+
+best_total_vehicle_cost: 最优方案中不考虑空中走廊冲突的车辆路径成本。
+

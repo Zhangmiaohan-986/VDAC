@@ -385,48 +385,190 @@ def save_input_data(input_data):
     return base_filename
 
 
+# ✅ MODIFIED: 固定保存目录（你指定的那个）
+SAVE_DIR_ABS = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+
+
+# ✅ MODIFIED: 这些工具函数如果你原来就有，就保留你的；没有就用我这份最小实现
+def _convert_numpy_types(obj):
+    """把 numpy 标量/数组转成 python 可pickle/可json的类型（pickle其实不强制，但保持一致）"""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return { _convert_numpy_types(k): _convert_numpy_types(v) for k, v in obj.items() }
+    if isinstance(obj, (list, tuple)):
+        t = [_convert_numpy_types(x) for x in obj]
+        return type(obj)(t) if isinstance(obj, tuple) else t
+    return obj
+
+
+def _convert_defaultdict_to_dict(dd):
+    """defaultdict -> dict（递归）"""
+    if isinstance(dd, defaultdict):
+        dd = dict(dd)
+    if isinstance(dd, dict):
+        return {k: _convert_defaultdict_to_dict(v) for k, v in dd.items()}
+    if isinstance(dd, list):
+        return [_convert_defaultdict_to_dict(x) for x in dd]
+    if isinstance(dd, tuple):
+        return tuple(_convert_defaultdict_to_dict(x) for x in dd)
+    return dd
+
+
+def _convert_key_to_str(obj):
+    """某些 key 不是基础类型时，转成 str（避免某些序列化/跨版本问题）"""
+    if isinstance(obj, dict):
+        return {str(k): _convert_key_to_str(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_key_to_str(x) for x in obj]
+    if isinstance(obj, tuple):
+        return tuple(_convert_key_to_str(x) for x in obj)
+    return obj
+
+
+# ✅ MODIFIED: 专门识别 vehicle_task / node 等对象：不要把它们变 dict（否则 fast_copy 没了）
+def _is_vehicle_task(obj):
+    return hasattr(obj, "__class__") and obj.__class__.__name__ == "vehicle_task"
+
+
+def _is_make_node(obj):
+    return hasattr(obj, "__class__") and obj.__class__.__name__ in ("make_node", "Node", "node")  # 你项目里实际类名可能是 make_node
+
+
+def _safe_for_regular(obj):
+    """
+    ✅ MODIFIED:
+    regular 情况下尽量把 numpy 转掉、defaultdict 转掉、key转str；
+    但遇到 vehicle_task / make_node 这类“需要保持对象”的，就原样返回（pickle能存对象）。
+    """
+    if _is_vehicle_task(obj) or _is_make_node(obj):
+        return obj
+    if isinstance(obj, nx.Graph):
+        # Graph 不走 regular，外层会单独处理
+        return obj
+    obj = _convert_defaultdict_to_dict(obj)
+    obj = _convert_key_to_str(obj)
+    obj = _convert_numpy_types(obj)
+    return obj
+
+
+SAVE_DIR_ABS = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+
+# 假设这是你的绝对路径
+SAVE_DIR_ABS = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+
 def save_input_data_with_name(input_data, custom_name):
-    """使用自定义名称保存数据"""
-    if not custom_name.endswith('.pkl'):
-        custom_name = custom_name + '.pkl'
-    if not custom_name.startswith('input_data_'):
-        custom_name = 'input_data_' + custom_name
-    
-    save_dir = 'saved_solutions'
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    
+    """
+    ✅ 最终融合版保存函数：
+    1. 彻底解决 pickle lambda 报错 (递归清洗 defaultdict)。
+    2. 集成 numpy 类型转换，确保数据纯净。
+    3. 保留 vehicle_task/node 等核心对象为实例(Object)，确保方法可用。
+    """
+
+    # -------- 内部核心：数据清洗函数 --------
+    def _sanitize_data(obj):
+        """
+        递归处理数据：
+        1. defaultdict -> dict (移除 lambda)
+        2. numpy -> int/float/list (兼容性)
+        3. list/dict -> 递归处理
+        4. 其他对象 (VehicleTask等) -> 保持原样
+        """
+        # 1. 处理 Numpy 类型 (引用了你提供的逻辑)
+        if isinstance(obj, (np.integer, int)) and not isinstance(obj, bool): # 注意：bool是int的子类
+             return int(obj)
+        elif isinstance(obj, (np.floating, float)):
+             return float(obj)
+        elif isinstance(obj, np.ndarray):
+             return [_sanitize_data(x) for x in obj.tolist()]
+
+        # 2. 处理 Defaultdict (这是解决报错的关键)
+        elif isinstance(obj, defaultdict):
+            return {k: _sanitize_data(v) for k, v in obj.items()}
+
+        # 3. 处理普通 Dict
+        elif isinstance(obj, dict):
+            return {k: _sanitize_data(v) for k, v in obj.items()}
+
+        # 4. 处理 List / Tuple
+        elif isinstance(obj, list):
+            return [_sanitize_data(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return tuple(_sanitize_data(v) for v in obj)
+
+        # 5. 其他自定义对象 (VehicleTask, Node 等)
+        # 直接返回对象本身！Pickle 会自动保存它的类结构和属性。
+        else:
+            return obj
+
+    # -------- 文件名规范化 --------
+    if not custom_name.endswith(".pkl"):
+        custom_name += ".pkl"
+    if not custom_name.startswith("input_data_"):
+        custom_name = "input_data_" + custom_name
+
+    save_dir = SAVE_DIR_ABS
+    os.makedirs(save_dir, exist_ok=True)
     file_path = os.path.join(save_dir, custom_name)
-    
-    if os.path.exists(file_path):
-        print(f"文件 {custom_name} 已存在，创建备份...")
-        backup_saved_file(custom_name)
-    
+
+    # -------- 执行保存 --------
     try:
+        print(f"[SAVE] 正在预处理数据 (清洗 lambda 和 numpy)...")
         serializable_data = {}
+
         for key, value in input_data.items():
-            if isinstance(value, defaultdict):
-                converted_data = dict(value)  # 转换defaultdict为普通dict
+            # 特殊处理 NetworkX (它不能简单的递归清洗，用它自带的方法)
+            if isinstance(value, nx.Graph):
+                # node_link_data 返回的是 dict，我们也清洗一下里面的 numpy
+                graph_data = nx.node_link_data(value)
+                serializable_data[key] = {
+                    'type': 'networkx_graph',
+                    'data': _sanitize_data(graph_data)
+                }
+            
+            # 特殊标记 defaultdict (方便加载时看日志，其实内容已经是 dict 了)
+            elif isinstance(value, defaultdict):
+                serializable_data[key] = {
+                    'type': 'defaultdict',
+                    'data': _sanitize_data(value)
+                }
+            
+            # 关键对象字典 (vehicle, node) - 标记为 object_dict
+            elif key in ['node', 'vehicle']:
+                serializable_data[key] = {
+                    'type': 'object_dict',
+                    'data': _sanitize_data(value) # 递归进去清洗可能存在的 numpy，但对象本身保留
+                }
+            
+            # 你的任务字典
+            elif key in ['vehicle_task_data', 'uav_task_dict']:
+                serializable_data[key] = {
+                    'type': 'task_data', # 标记一下
+                    'data': _sanitize_data(value) # 这里的 _sanitize 会把 defaultdict 剥离
+                }
+
+            # 普通数据
             else:
-                converted_data = value
-            
-            # 转换所有复杂对象为可序列化的字典
-            converted_data = convert_object_to_dict(converted_data)
-            
-            serializable_data[key] = {
-                'type': 'defaultdict' if isinstance(value, defaultdict) else 'regular',
-                'data': converted_data
-            }
-        
-        # 保存为pickle格式
-        with open(file_path, 'wb') as f:
-            pickle.dump(serializable_data, f)
-        
-        print(f"数据已保存为: {custom_name}")
-        return custom_name.replace('.pkl', '')
+                serializable_data[key] = {
+                    'type': 'regular',
+                    'data': _sanitize_data(value)
+                }
+
+        print(f"[SAVE] 正在写入文件: {file_path}")
+        with open(file_path, "wb") as f:
+            pickle.dump(serializable_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print(f"✅ 数据保存成功: {custom_name}")
+        return custom_name.replace(".pkl", "")
+
     except Exception as e:
-        print(f"保存数据时出错: {str(e)}")
-        print("详细错误信息:")
+        print(f"❌ 保存失败: {str(e)}")
         import traceback
         print(traceback.format_exc())
         return None
@@ -735,35 +877,180 @@ def manage_saved_data():
             print("无效的选择，请重试")
 
 
+# def load_input_data(filename, save_dir=r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"):
+#     """加载保存的数据（支持 base_name / 带前缀名 / 带后缀名 / 直接完整路径）"""
+
+#     # ✅ MODIFIED: 统一绝对目录
+#     save_dir = os.path.abspath(save_dir)
+
+#     # ✅ MODIFIED: 如果传入的是完整路径，直接使用
+#     if isinstance(filename, str) and os.path.exists(filename):
+#         file_path = filename
+#     else:
+#         name = filename
+
+#         # ✅ MODIFIED: 去掉后缀（如果用户传了 .pkl）
+#         if name.endswith(".pkl"):
+#             name = name[:-4]
+
+#         # ✅ MODIFIED: 正确加前缀（绝对不能写成 filename='filename'）
+#         if not name.startswith("input_data_"):
+#             name = "input_data_" + name
+
+#         file_path = os.path.join(save_dir, name + ".pkl")
+
+#     # ✅ MODIFIED: 明确提示文件到底找没找到
+#     if not os.path.exists(file_path):
+#         print(f"[LOAD] 文件不存在: {file_path}")
+#         return None
+
+#     try:
+#         with open(file_path, 'rb') as f:
+#             data = pickle.load(f)
+
+#         restored_data = {}
+#         for key, value in data.items():
+#             if value.get('type') == 'defaultdict':
+#                 restored_data[key] = defaultdict(list, create_object_from_dict(value['data']))
+#             else:
+#                 restored_data[key] = create_object_from_dict(value['data'])
+
+#         print(f"[LOAD] 成功加载: {file_path}")
+#         return restored_data
+
+#     except Exception as e:
+#         print(f"加载数据时出错: {str(e)}")
+#         print("详细错误信息:")
+#         import traceback
+#         print(traceback.format_exc())
+#         return None
+
+# def load_input_data(filename):  # 不行版本
+#     """加载输入数据"""
+#     # 你的保存目录
+#     save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    
+#     # === [修改开始] ===
+#     # 你的实际文件名前面有 "input_data_"，但传入的 filename 参数(instance_name)没有
+#     # 所以这里需要手动加上 "input_data_" 前缀
+    
+#     # 逻辑判断：为了防止 filename 变量里已经包含了 input_data_ 导致重复，做一个判断
+#     if filename.startswith("input_data_"):
+#         real_filename = f'{filename}.pkl'
+#     else:
+#         real_filename = f'input_data_{filename}.pkl'
+        
+#     pickle_path = os.path.join(save_dir, real_filename)
+#     # === [修改结束] ===
+
+#     # 为了方便调试，建议打印一下最终尝试读取的路径
+#     print(f"正在尝试加载文件: {pickle_path}")
+
+#     # 检查文件是否存在，如果不存在提前报错并给出提示
+#     if not os.path.exists(pickle_path):
+#         raise FileNotFoundError(f"无法找到文件: {pickle_path}，请检查 saved_solutions 目录下是否有该文件。")
+
+#     with open(pickle_path, 'rb') as f:
+#         data = pickle.load(f)
+    
+#     # 还原数据结构
+#     restored_data = {}
+#     for key, value in data.items():
+#         if value['type'] == 'defaultdict':
+#             # 将普通dict转回defaultdict
+#             dd = defaultdict(lambda: None)
+#             dd.update(value['data'])
+#             restored_data[key] = dd
+#         elif value['type'] == 'networkx_graph':
+#             restored_data[key] = nx.node_link_graph(value['data'])
+#         # elif value['type'] == 'object_dict':
+#         #     restored_data[key] = {k: create_object_from_dict(v, key) for k, v in value['data'].items()}
+#         else:
+#             # 注意：如果 value['type'] == 'object_dict' 逻辑是你自己写的，请保留
+#             # 这里为了通用性，我处理了 else 情况
+#             restored_data[key] = value['data']
+    
+#     return restored_data
+
 def load_input_data(filename):
-    """加载保存的数据"""
-    if not filename.endswith('.pkl'):
-        filename = filename + '.pkl'
-    if not filename.startswith('input_data_'):
-        filename = 'input_data_' + filename
+    """
+    ✅ 修复版加载函数：
+    1. 自动处理文件名后缀和前缀
+    2. 仅对 defaultdict 和 nx.Graph 做特殊还原
+    3. 对于 node/vehicle/task，直接返回 pickle 还原的对象（保留了方法）
+    """
     
-    file_path = os.path.join('saved_solutions', filename)
+    save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
     
+    # -------- 1. 路径与文件名解析 --------
+    # 如果传入的是完整路径且存在，直接用
+    if os.path.isabs(filename) and os.path.exists(filename):
+        pickle_path = filename
+    else:
+        # 清理文件名
+        name = filename
+        if name.endswith(".pkl"):
+            name = name[:-4]
+        if not name.startswith("input_data_"):
+            name = "input_data_" + name
+            
+        pickle_path = os.path.join(save_dir, name + ".pkl")
+
+    print(f"[LOAD] 正在读取文件: {pickle_path}")
+
+    if not os.path.exists(pickle_path):
+        print(f"[LOAD][ERROR] 文件不存在: {pickle_path}")
+        return None
+
+    # -------- 2. 读取与结构还原 --------
     try:
-        with open(file_path, 'rb') as f:
-            data = pickle.load(f)
-            restored_data = {}
-            for key, value in data.items():
-                if value['type'] == 'defaultdict':
-                    restored_data[key] = defaultdict(list, create_object_from_dict(value['data']))
+        with open(pickle_path, "rb") as f:
+            loaded_wrapper = pickle.load(f)
+
+        restored_data = {}
+
+        for key, wrapper in loaded_wrapper.items():
+            # 兼容性检查：确保是我们封装的 {'type':..., 'data':...} 格式
+            if isinstance(wrapper, dict) and 'type' in wrapper and 'data' in wrapper:
+                data_type = wrapper['type']
+                raw_data = wrapper['data']
+                
+                if data_type == 'defaultdict':
+                    # 还原 defaultdict
+                    dd = defaultdict(lambda: None)
+                    dd.update(raw_data)
+                    restored_data[key] = dd
+                    
+                elif data_type == 'networkx_graph':
+                    # 还原 NetworkX 图
+                    restored_data[key] = nx.node_link_graph(raw_data)
+                    
+                elif data_type == 'object_dict':
+                    # ✅ 关键修正：
+                    # 因为保存时直接存了对象，pickle 自动还原了它们。
+                    # 这里不需要 create_object_from_dict，直接用 raw_data 即可。
+                    restored_data[key] = raw_data
+                    
                 else:
-                    restored_data[key] = create_object_from_dict(value['data'])
-            return restored_data
+                    # regular 或其他类型，直接使用
+                    restored_data[key] = raw_data
+            else:
+                # 假如读到了旧版数据（没有 type/data 包装），直接赋值
+                restored_data[key] = wrapper
+
+        print(f"[LOAD] ✅ 成功加载数据，对象方法已保留。")
+        return restored_data
+
     except Exception as e:
-        print(f"加载数据时出错: {str(e)}")
-        print("详细错误信息:")
+        print(f"[LOAD][ERROR] 加载失败: {str(e)}")
         import traceback
         print(traceback.format_exc())
         return None
-    
+
 # def load_input_data(filename):
 #     """加载输入数据"""
-#     save_dir = 'saved_solutions'
+#     # save_dir = 'saved_solutions'
+#     save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
 #     pickle_path = os.path.join(save_dir, f'{filename}.pkl')
     
 #     with open(pickle_path, 'rb') as f:

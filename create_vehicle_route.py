@@ -87,14 +87,16 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = "my_special_result_20num_3v_6d_100n"
     # input_filename = "my_special_result_30num_3v_6d_100n"
     input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-    save_dir = r"VDAC\saved_solutions"
+    # save_dir = r"VDAC\saved_solutions"
+    # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
+    save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
     os.makedirs(save_dir, exist_ok=True)
     saved_file_path = find_saved_solution_file(save_dir, input_filename)
 
     if saved_file_path is None:
         # 生成多个候选解
         # num_solutions = 20  # 生成5个候选解
-        num_solutions = 30  # 生成30个候选解
+        num_solutions = 5  # 生成30个候选解
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
         uav_task_dict = defaultdict(dict)
@@ -139,7 +141,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 保存输入数据
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
-        custom_name = "my_special_result_30num_3v_6d_100n"
+        custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名
     # input_filename = save_input_data(input_data)
@@ -169,28 +171,31 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     return  best_total_cost, best_uav_plan, best_customer_plan, time_uav_task_dict, best_uav_cost, best_vehicle_route, vehicle_plan_time, best_vehicle_task_data, global_reservation_table
 
 
-def find_saved_solution_file(save_dir: str, base_name: str):
+import os
+import glob
+
+def find_saved_solution_file(save_dir: str, base_name: str,
+                            prefixes=("input_data_", "input_")):
     """
-    在 save_dir 中查找与 base_name 匹配的文件。
-    兼容：
-    - base_name.pkl / .json / .npz 等
-    - base_name_时间戳.pkl 这种带后缀
-    返回：匹配到的“最新文件路径”或 None
+    ✅ MODIFIED:
+    - save_dir: 传入绝对目录
+    - base_name: 不带前缀、不带后缀（例如 my_special_result_30num_3v_6d_100n）
+    - 返回: 最新匹配文件的【完整路径】或 None
     """
-    patterns = [
-        os.path.join(save_dir, base_name + ".*"),
-        os.path.join(save_dir, base_name + "_*.*"),
-    ]
+    save_dir = os.path.abspath(save_dir)
+
     candidates = []
-    for pat in patterns:
-        candidates.extend(glob.glob(pat))
+    for pref in prefixes:
+        name = f"{pref}{base_name}"
+        candidates += glob.glob(os.path.join(save_dir, name + ".pkl"))
+        candidates += glob.glob(os.path.join(save_dir, name + "_*.pkl"))
 
     if not candidates:
         return None
 
-    # 取最新修改时间的那个
     candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return candidates[0]
+
 
 
 # 设计生成多样化的车辆路径，以及生成无人机插入，组成完成的车辆+无人机初始线路

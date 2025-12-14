@@ -6,10 +6,92 @@ import time
 import glob
 import traceback
 import datetime
-
+import main
 from main import missionControl
+import sys
+import datetime
+import time
+import math
+from collections import defaultdict
+import pandas as pd
+
+from parseCSV import *
+from parseCSVstring import *
+
+from gurobipy import *
+import os
+import os.path
+from subprocess import call		# allow calling an external command in python.  See http://stackoverflow.com/questions/89228/calling-an-external-command-in-python
+from task_data import *
+from cost_y import *
+from call_function import *
+from initialize import *
+from cbs_plan import *
+# from insert_plan import *
+from down_data import *
+from solve_mfstsp_heuristic import *
+
+import distance_functions
+
+from generate_test_problems import *
+# =============================================================
+startTime 		= time.time()
+
+METERS_PER_MILE = 1609.34
 
 
+UAVSpeedTypeString = {1: 'variable', 2: 'maximum', 3: 'maximum-range'}
+
+
+NODE_TYPE_DEPOT	= 0
+NODE_TYPE_CUST	= 1
+
+TYPE_TRUCK 		= 1
+TYPE_UAV 		= 2
+
+# NUM_POINTS = 50
+# NUM_POINTS = 100
+SEED = 6
+Z_COORD = 0.05  # 规划无人机空中高度情况
+UAV_DISTANCE = 15
+
+# ==============================================================================
+# 【核心修复】解决 AttributeError: Can't get attribute 'make_node' on <module '__main__'>
+# pickle 加载时会在当前运行的脚本(__main__)中寻找这些类定义。
+# 我们必须把 main.py 里的类赋值给当前脚本的全局变量。
+# ==============================================================================
+make_node = main.make_node
+make_vehicle = main.make_vehicle
+make_travel = main.make_travel
+make_dict = main.make_dict
+make_assignments = main.make_assignments
+make_packages = main.make_packages
+
+# 同时确保 missionControl 也能被正常使用
+from main import missionControl
+import warnings
+
+# ✅ 只屏蔽 sklearn KMeans 的 FutureWarning
+warnings.filterwarnings(
+    "ignore",
+    message="The default value of `n_init` will change*",
+    category=FutureWarning,
+)
+
+# ✅ 只屏蔽 KMeans 的 MKL memory leak 提示
+warnings.filterwarnings(
+    "ignore",
+    message="KMeans is known to have a memory leak on Windows with MKL*",
+    category=UserWarning,
+)
+
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    message=r".*adjacency_matrix will return a scipy\.sparse array instead of a matrix.*"
+)
 # ==========================================================
 # ✅ MODIFIED: 查找 saved_solutions 里是否已有对应结果（前缀匹配，兼容时间戳后缀）
 # ==========================================================
@@ -158,32 +240,32 @@ def run_batch_experiments():
         # ✅ MODIFIED: 每个实验单独日志文件（失败也能定位）
         log_path = os.path.join(save_dir, f"{save_name}.log")
 
-        try:
-            t0 = time.time()
-            app = missionControl(config=config)
-            t1 = time.time()
+        # try:
+        t0 = time.time()
+        app = missionControl(config=config)
+        t1 = time.time()
 
-            msg = f"[OK] {save_name} finished in {t1 - t0:.2f}s\n"
-            print(msg)
+        msg = f"[OK] {save_name} finished in {t1 - t0:.2f}s\n"
+        print(msg)
 
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"{datetime.datetime.now().isoformat()} {msg}")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} {msg}")
 
-            success_count += 1
+        success_count += 1
 
-        except Exception as e:
-            fail_count += 1
-            print(f"[FAIL] {save_name}")
-            print(f"错误信息: {str(e)}")
-            traceback.print_exc()
+        # except Exception as e:
+        #     fail_count += 1
+        #     print(f"[FAIL] {save_name}")
+        #     print(f"错误信息: {str(e)}")
+        #     traceback.print_exc()
 
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"{datetime.datetime.now().isoformat()} [FAIL] {save_name}\n")
-                f.write(str(e) + "\n")
-                f.write(traceback.format_exc() + "\n")
+        #     with open(log_path, "a", encoding="utf-8") as f:
+        #         f.write(f"{datetime.datetime.now().isoformat()} [FAIL] {save_name}\n")
+        #         f.write(str(e) + "\n")
+        #         f.write(traceback.format_exc() + "\n")
 
-            # 继续下一个
-            continue
+        #     # 继续下一个
+        #     continue
 
     duration = time.time() - start_time_all
 
