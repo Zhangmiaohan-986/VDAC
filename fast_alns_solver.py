@@ -324,6 +324,7 @@ class FastMfstspState:
 
         # [A] Vehicle Routes: List[List] -> 列表推导 + 切片
         new_state.vehicle_routes = [r[:] for r in self.vehicle_routes]
+        new_state.rm_empty_vehicle_route = [r[:] for r in new_state.vehicle_routes]
 
         # [B] UAV Assignments: Dict[List] -> 字典推导 + 切片
         new_state.uav_assignments = {k: v[:] for k, v in self.uav_assignments.items()}
@@ -364,12 +365,26 @@ class FastMfstspState:
         else:
             new_state.destroyed_customers_info = {}
 
-        if getattr(self, 'rm_empty_vehicle_route', None):
-            new_state.rm_empty_vehicle_route = [r[:] for r in self.rm_empty_vehicle_route]
+        # if getattr(self, 'rm_empty_vehicle_route', None):
+        #     new_state.rm_empty_vehicle_route = [r[:] for r in self.rm_empty_vehicle_route]
             
         if getattr(self, 'empty_nodes_by_vehicle', None):
             new_state.empty_nodes_by_vehicle = {k: v[:] for k, v in self.empty_nodes_by_vehicle.items()}
-
+        
+        new_state.uav_cost = {k: v for k, v in self.uav_cost.items()}
+        if hasattr(self, 'vehicle_plan_time'):
+            new_state.vehicle_plan_time = self.vehicle_plan_time.copy()
+            for v_id, inner_dict in self.vehicle_plan_time.items():
+                # 复制内层 defaultdict/dict
+                new_inner = inner_dict.copy()
+                # 复制最内层的 List [time_start, time_end]
+                for node_id, time_list in inner_dict.items():
+                    new_inner[node_id] = time_list[:] 
+                new_state.vehicle_plan_time[v_id] = new_inner
+        if hasattr(self, 'vehicle_arrive_time'):
+            new_state.vehicle_arrive_time = {n_id: t for n_id, t in self.vehicle_arrive_time.items()}
+        if hasattr(self, 'rm_vehicle_arrive_time'):
+            new_state.rm_vehicle_arrive_time = {n_id: t for n_id, t in self.rm_vehicle_arrive_time.items()}
         return new_state
 
     # 实现按需复制的fast_copy任务。
@@ -2143,9 +2158,10 @@ class IncrementalALNS:
                             })
                     if customer_candidates:
                         customer_candidates = [item for item in customer_candidates if item['scheme'] is not None]
-                        customer_candidates.sort(key=lambda x: x['total_cost'])
-                        best_move_for_this_customer = customer_candidates[0]
-                        global_best_moves.append(best_move_for_this_customer)
+                        if customer_candidates:  # 有可能过滤后的任务为空
+                            customer_candidates.sort(key=lambda x: x['total_cost'])
+                            best_move_for_this_customer = customer_candidates[0]
+                            global_best_moves.append(best_move_for_this_customer)
                     customer_candidates = []
                 if not global_best_moves:
                     print('在噪声的修复策略中，无法为剩余客户找到任何可行位置')
@@ -5443,25 +5459,6 @@ class IncrementalALNS:
         vehicle_route_cost.append(current_objective - current_window_total_cost)
 
         final_best_objective = best_final_objective
-        # 保存初始完成空中无人机避障航迹规划任务数据
-        # final_vehicle_arrive_time = extract_arrive_time_from_plan(current_state.final_vehicle_plan_time)
-        # finial_window_total_cost, finial_uav_tw_violation_cost, finial_total_cost_dict  = calculate_window_cost(current_state.customer_plan,
-        #         current_state.final_uav_cost,
-        #         final_vehicle_arrive_time,
-        #         self.vehicle,
-        #         self.customer_time_windows_h,
-        #         self.early_arrival_cost,
-        #         self.late_arrival_cost,
-        #         self.uav_travel,
-        #         self.node)
-        # final_vehicle_max_times, final_global_max_time = get_max_completion_time(final_vehicle_arrive_time)
-        # final_work_time.append(final_global_max_time)
-        # final_uav_cost.append(sum(current_state.final_uav_cost.values()))
-        # final_total_list.append(finial_window_total_cost)
-        # final_win_cost.append(finial_uav_tw_violation_cost)
-        # final_total_objective_value = current_state.update_calculate_plan_cost(finial_total_cost_dict, current_state.vehicle_routes)
-        # final_total_objective.append(final_total_objective_value)
-        # 保存任务完成
 
         start_time = time.time()
         
@@ -5470,14 +5467,9 @@ class IncrementalALNS:
         
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
-        # temperature = 100.0
-        # temperature = 500.0
-        # initial_temperature = temperature
-        # self.temperature = temperature
-        # self.initial_temperature = temperature
-        # cooling_rate = 0.95  # 缓慢降温以进行更充分的探索
         cooling_rate = 0.985  # 缓慢降温以进行更充分的探索
         print(f"开始ALNS求解，初始成本: {best_objective:.2f}")
+        # self.max_iterations = 100
 
         # --------------------------------------------------------------------------
         # 阶段二：智能ALNS主循环
@@ -5619,10 +5611,12 @@ class IncrementalALNS:
                     self.late_arrival_cost,
                     self.uav_travel,
                     self.node)
+            current_vehicle_max_times, current_global_max_time = get_max_completion_time(current_vehicle_arrive_time)
             current_total_violation_cost = sum(current_uav_tw_violation_cost.values())
             win_cost.append(current_total_violation_cost)
             uav_route_cost.append(current_window_total_cost - current_total_violation_cost)
             vehicle_route_cost.append(new_objective - current_window_total_cost)
+            work_time.append(current_global_max_time)
             # 添加更新空中无人机避障后的信息内容
             repaired_state.vehicle_arrive_time = repaired_state.calculate_rm_empty_vehicle_arrive_time(repaired_state.vehicle_routes)
             repaired_state.final_uav_plan, repaired_state.final_uav_cost, repaired_state.final_vehicle_plan_time, repaired_state.final_vehicle_task_data, repaired_state.final_global_reservation_table = repaired_state.re_update_time(repaired_state.vehicle_routes, repaired_state.vehicle_arrive_time, repaired_state.vehicle_task_data, repaired_state)
@@ -5722,6 +5716,7 @@ class IncrementalALNS:
             if final_new_objective < final_best_objective: # 再次检查以更新最优状态
                 best_final_state = repaired_state.fast_copy()
                 final_best_objective = final_new_objective
+                best_final_state.final_best_objective = final_best_objective
                 best_final_uav_cost = sum(repaired_state.final_uav_cost.values())
                 best_final_objective = final_best_objective
                 best_final_win_cost = sum(finial_uav_tw_violation_cost.values())
@@ -5773,6 +5768,8 @@ class IncrementalALNS:
                           self.node)
         # 记录完成时间
         best_vehicle_max_times, best_global_max_time = get_max_completion_time(best_arrive_time)
+        best_total_uav_tw_violation_cost = sum(best_uav_tw_violation_cost.values())
+        best_total_vehicle_cost = best_objective - best_window_total_cost
         # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_arrive_time, best_state.vehicle_task_data, best_state)
         # # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
         # # 添加更新空中无人机避障后的信息内容
@@ -5834,7 +5831,7 @@ class IncrementalALNS:
             best_final_state=best_final_state,
         )
         print(f"ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
-        return best_state, best_objective
+        return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
 
     def _roulette_wheel_select(self, weights):
         """
@@ -8337,9 +8334,9 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)
     
     # 使用ALNS求解
-    best_solution, best_objective = alns_solver.solve(initial_solution)
+    best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time = alns_solver.solve(initial_solution)
     
-    return best_solution, best_objective 
+    return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
 
 
 # --- 核心：定义概率选择函数 ---

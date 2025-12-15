@@ -12,6 +12,9 @@ from initialize import init_agent, initialize_drone_vehicle_assignments
 from create_vehicle_route import *
 
 import os
+import json
+import numpy as np
+import pandas as pd
 # from main import find_keys_and_indices
 from mfstsp_heuristic_1_partition import *
 from mfstsp_heuristic_2_asgn_uavs import *
@@ -35,6 +38,7 @@ TYPE_UAV 		= 2
 #
 
 METERS_PER_MILE = 1609.34
+SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\data_total"
 
 # http://stackoverflow.com/questions/635483/what-is-the-best-way-to-implement-nested-dictionaries-in-python
 def make_dict():
@@ -82,7 +86,7 @@ class make_packages:
 
 
 # def solve_mfstsp_heuristic(node, vehicle, travel, problemName, vehicleFileID, numUAVs, UAVSpeedType):
-def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations):
+def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations, loop_iterations):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -181,7 +185,8 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		sigmaprime[k] = node[k].serviceTimeUAV/60
 	
 	# 上述内容将基础参数全部处理完成，随后开始仿真实验处理
-	iter_num = 20 # 仿真实验次数,便于计算平均值等方案
+	results_all = init_results_framework(["H_ALNS"])  # 后续加别的算法名即可
+	iter_num = 1 # 仿真实验次数,便于计算平均值等方案
 	# 初始化多次试验的仿真实验结果
 	best_total_cost_list = np.array([])
 	best_uav_plan_list = []
@@ -192,7 +197,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	best_global_reservation_table_list = []
 	# 是否允许无人机拥堵调度
 	allow_uav_congestion = False
-	for iter in range(iter_num):
+	for iter in range(loop_iterations):
 		# 初始化仿真实验结果
 		# best_total_cost_list = np.append(best_total_cost_list, float('inf'))
 		# best_uav_plan_list.append([])
@@ -225,21 +230,210 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		)
 		
 		# 使用高效ALNS求解（增量式算法，避免深拷贝）,输出最佳方案结果，并保存到文件中
-		H_alns_solution, H_alns_objective = solve_with_fast_alns(
-		initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,problemName,
-		iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
+		(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
+		H_alns_best_final_win_cost, H_alns_best_total_win_cost, H_alns_best_final_global_max_time, H_alns_best_global_max_time, H_alns_best_window_total_cost, 
+		H_alns_best_total_uav_tw_violation_cost, H_alns_best_total_vehicle_cost, H_alns_elapsed_time, H_alns_win_cost, H_alns_uav_route_cost, H_alns_vehicle_route_cost, 
+		H_alns_final_uav_cost, H_alns_final_total_list, H_alns_final_win_cost, H_alns_final_total_objective, H_alns_y_cost, H_alns_y_best, H_alns_work_time, 
+		H_alns_final_work_time) = solve_with_fast_alns(
+			initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
+			N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
+			A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
+			air_node_types, ground_node_types, A_c, xeee,
+			customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+			iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
 		)
+		# H_alns_best_state, H_alns_best_objective, H_alns_best_final_state, H_alns_best_final_objective, H_alns_y_best, H_alns_y_cost, H_alns_final_total_objective, H_alns_win_cost, H_alns_uav_route_cost, H_alns_vehicle_route_cost, H_alns_final_uav_cost, H_alns_final_total_list, H_alns_final_win_cost, H_alns_work_time, H_alns_final_work_time, H_alns_best_final_objective, H_alns_best_final_win_cost, H_alns_best_final_global_max_time, H_alns_best_final_vehicle_max_times, H_alns_best_final_vehicle_route_cost, H_alns_best_final_uav_cost, H_alns_best_total_win_cost, H_alns_best_final_state, H_alns_best_final_vehicle_max_times, H_alns_best_final_global_max_time, H_alns_best_final_vehicle_route_cost, H_alns_best_final_uav_cost, H_alns_best_total_win_cost, H_alns_best_global_max_time, H_alns_elapsed_time, H_alns_best_window_total_cost, H_alns_best_total_uav_tw_violation_cost, H_alns_best_total_vehicle_cost = solve_with_fast_alns(
+		# initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		# A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,problemName,
+		# iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
+		# )
 		# best_solution, best_objective, statistics = solve_with_fast_alns(
 		# initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		# A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost,problemName,
 		# iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
 		# )
+		record_one_run(
+			results_all["H_ALNS"],
+			# --- state（只存不导出）---
+			best_state_list=H_alns_best_state,
+			best_final_state_list=H_alns_best_final_state,
+
+			# --- 标量 ---
+			best_objective_list=H_alns_best_objective,
+			best_final_objective_list=H_alns_best_final_objective,
+			best_final_uav_cost_list=H_alns_best_final_uav_cost,
+			best_final_win_cost_list=H_alns_best_final_win_cost,
+			best_total_win_cost_list=H_alns_best_total_win_cost,
+			best_final_global_max_time_list=H_alns_best_final_global_max_time,
+			best_global_max_time_list=H_alns_best_global_max_time,
+			best_window_total_cost_list=H_alns_best_window_total_cost,
+			best_total_uav_tw_violation_cost_list=H_alns_best_total_uav_tw_violation_cost,
+			best_total_vehicle_cost_list=H_alns_best_total_vehicle_cost,
+			elapsed_time_list=H_alns_elapsed_time,
+
+			# --- 每代曲线（list/np.array 都可以）---
+			win_cost_curve_list=H_alns_win_cost,
+			uav_route_cost_curve_list=H_alns_uav_route_cost,
+			vehicle_route_cost_curve_list=H_alns_vehicle_route_cost,
+			final_uav_cost_curve_list=H_alns_final_uav_cost,
+			final_total_list_curve_list=H_alns_final_total_list,
+			final_win_cost_curve_list=H_alns_final_win_cost,
+			final_total_objective_curve_list=H_alns_final_total_objective,
+			y_cost_curve_list=H_alns_y_cost,
+			y_best_curve_list=H_alns_y_best,
+			work_time_curve_list=H_alns_work_time,
+			final_work_time_curve_list=H_alns_final_work_time,
+		)
 		print(f"H-ALNS求解完成。")
+	export_results_to_excel(results_all, str('H_ALNS_'+problemName), save_dir=SAVE_DIR_TOTAL)
 		
-		
+# ========= 工具函数 =========
+def _to_py(obj):
+    """把 numpy 类型 / ndarray / list 统一转成 python 可序列化对象"""
+    if obj is None:
+        return None
+    if isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    if isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+	
+def _jsonify(obj):
+    """list/ndarray -> JSON string；标量保持标量"""
+    obj = _to_py(obj)
+    if isinstance(obj, (list, dict)):
+        return json.dumps(obj, ensure_ascii=False)
+    return obj
 
-		
+def init_results_framework(algo_names):
+    """
+    algo_names: 例如 ["H_ALNS", "GA", "MyAlgo"]
+    返回：results[algo] 是一个 dict，内部所有字段都是 list，用于按 iter 追加
+    """
+    results = {}
+    for algo in algo_names:
+        results[algo] = {
+            # --- state：只存，不导出 ---
+            "best_state_list": [],
+            "best_final_state_list": [],
 
-		
-		
+            # --- 关键标量（每次仿真实验一条） ---
+            "best_objective_list": [],
+            "best_final_objective_list": [],
+            "best_final_uav_cost_list": [],
+            "best_final_win_cost_list": [],
+            "best_total_win_cost_list": [],
+            "best_final_global_max_time_list": [],
+            "best_global_max_time_list": [],
+            "best_window_total_cost_list": [],
+            "best_total_uav_tw_violation_cost_list": [],
+            "best_total_vehicle_cost_list": [],
+            "elapsed_time_list": [],
+
+            # --- 每代曲线（每次仿真实验一条“列表/数组”） ---
+            "win_cost_curve_list": [],
+            "uav_route_cost_curve_list": [],
+            "vehicle_route_cost_curve_list": [],
+            "final_uav_cost_curve_list": [],
+            "final_total_list_curve_list": [],
+            "final_win_cost_curve_list": [],
+            "final_total_objective_curve_list": [],
+            "y_cost_curve_list": [],
+            "y_best_curve_list": [],
+            "work_time_curve_list": [],
+            "final_work_time_curve_list": [],
+        }
+    return results
+
+def record_one_run(results_for_algo, **kwargs):
+    """
+    往某个算法的 results dict 里追加一次仿真实验结果。
+    kwargs 支持你传任何字段；只要在 results_for_algo 里存在就会 append。
+    """
+    for k, v in kwargs.items():
+        if k not in results_for_algo:
+            # 你后续加新指标时，不用改框架：自动创建新列表字段
+            results_for_algo[k] = []
+        results_for_algo[k].append(_to_py(v))
+
+def export_results_to_excel(results_by_algo, problemName, save_dir=SAVE_DIR_TOTAL):
+    """
+    把所有算法导出到同一个 Excel：
+      - 每个算法两个 sheet：{algo}_summary 和 {algo}_curves
+      - summary：每次 iter 一行（曲线字段写成 JSON 字符串，便于后续解析）
+      - curves：长表(run_id, gen, 指标...) 方便画迭代曲线
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    xlsx_path = os.path.join(save_dir, f"{problemName}_data_total.xlsx")
+
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        for algo, data in results_by_algo.items():
+            # ===== summary（忽略 state）=====
+            n_runs = len(data.get("best_objective_list", []))
+            summary_rows = []
+            for i in range(n_runs):
+                row = {"run_id": i, "algo": algo}
+                for key, lst in data.items():
+                    if key in ("best_state_list", "best_final_state_list"):
+                        continue  # 忽略 state
+                    if not isinstance(lst, list) or i >= len(lst):
+                        continue
+                    row[key] = _jsonify(lst[i])
+                summary_rows.append(row)
+            df_summary = pd.DataFrame(summary_rows)
+
+            # ===== curves（长表）=====
+            curve_keys = [
+                "win_cost_curve_list",
+                "uav_route_cost_curve_list",
+                "vehicle_route_cost_curve_list",
+                "final_uav_cost_curve_list",
+                "final_total_list_curve_list",
+                "final_win_cost_curve_list",
+                "final_total_objective_curve_list",
+                "y_cost_curve_list",
+                "y_best_curve_list",
+                "work_time_curve_list",
+                "final_work_time_curve_list",
+            ]
+
+            curve_rows = []
+            for run_id in range(n_runs):
+                # 找这次 run 的最大代数（取所有曲线里最长的那个）
+                max_len = 0
+                run_curves = {}
+                for ck in curve_keys:
+                    curves_all_runs = data.get(ck, [])
+                    curve = curves_all_runs[run_id] if run_id < len(curves_all_runs) else None
+                    curve = _to_py(curve)
+                    if curve is None:
+                        run_curves[ck] = None
+                        continue
+                    if not isinstance(curve, list):
+                        curve = [curve]  # 兜底：单值也变成 list
+                    run_curves[ck] = curve
+                    max_len = max(max_len, len(curve))
+
+                for gen in range(max_len):
+                    row = {"run_id": run_id, "gen": gen, "algo": algo}
+                    for ck, curve in run_curves.items():
+                        # 列名更好看：去掉 _curve_list
+                        col = ck.replace("_curve_list", "")
+                        if curve is None or gen >= len(curve):
+                            row[col] = np.nan
+                        else:
+                            row[col] = _to_py(curve[gen])
+                    curve_rows.append(row)
+
+            df_curves = pd.DataFrame(curve_rows)
+
+            # 写入 Excel
+            sheet_summary = f"{algo}_summary"
+            sheet_curves = f"{algo}_curves"
+            df_summary.to_excel(writer, sheet_name=sheet_summary[:31], index=False)
+            df_curves.to_excel(writer, sheet_name=sheet_curves[:31], index=False)
+
+    print(f"[OK] 导出完成：{xlsx_path}")
+    return xlsx_path

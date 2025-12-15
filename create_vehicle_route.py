@@ -96,7 +96,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     if saved_file_path is None:
         # 生成多个候选解
         # num_solutions = 20  # 生成5个候选解
-        num_solutions = 5  # 生成30个候选解
+        num_solutions = 20  # 生成30个候选解
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
         uav_task_dict = defaultdict(dict)

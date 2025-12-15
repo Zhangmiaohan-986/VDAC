@@ -266,6 +266,7 @@ class missionControl():
 			late_arrival_cost = config.get('late_arrival_cost', [20, 0.333]) # 动态获取迟到惩罚成本
 			max_Drones = config.get('max_drones', 10) # 动态获取无人机最大数量
 			num_points = config.get('num_points', 100) # 动态获取节点数量
+			self.loop_iterations = config.get('loop_iterations', 300) # 动态获取循环迭代次数
 			self.max_iterations = config.get('iterations', 500) # 动态获取迭代次数
 			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
 			self.vehicleFileID = 1 # 假设默认
@@ -353,7 +354,7 @@ class missionControl():
 		print('Calling a Heuristic to solve VDCD-AC...')
 		# 调用启发式算法解决mFSTSP-VDS问题
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
-		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations)
+		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations, self.loop_iterations)
 		print('所有任务完成')
 
 	# 读取车辆数据

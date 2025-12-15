@@ -633,6 +633,14 @@ class Time_cbs_Batch_Solver:
                 if mission_dict is None: continue # 安全检查
 
                 new_constraint = self._create_constraint_from_collision(collision, agent_id, mission_tuple)
+                # >>> FIX-S1: new_constraint 可能为 None，必须保护
+                if new_constraint is None:
+                    print("[CBS] Skip: cannot create constraint from collision type=",
+                        collision.get('type'), "agent=", agent_id, "mission=", mission_tuple)
+                    print("      collision keys:", list(collision.keys()))
+                    if 'constraint' in collision:
+                        print("      collision['constraint']=", collision['constraint'])
+                    continue
                 # >>> FIX-2A: 约束key（按时间步对齐）
                 key = (new_constraint['agent_id'],
                     tuple(new_constraint['loc']),
@@ -1365,7 +1373,6 @@ class Time_cbs_Batch_Solver:
                         if violation not in all_collisions:
                             all_collisions.append(violation)
                         break # 已找到违规，检查下一条约束
-
         return all_collisions
 
     def _create_constraint_from_collision(self, collision, agent_id_to_constrain, mission_tuple):
@@ -1386,6 +1393,45 @@ class Time_cbs_Batch_Solver:
             return math.ceil((t - EPS) / TS) * TS
 
         collision_type = collision.get('type', None)
+        if collision_type == 'constraint_violation':
+            c = collision.get('constraint', None)
+            if not c:
+                return None
+
+            cid = c.get('agent_id', c.get('agent', None))
+            if cid != agent_id_to_constrain:
+                return None
+
+            loc  = c.get('loc', None)
+            kind = c.get('kind', c.get('type', None))
+            if not loc or kind not in ('vertex', 'edge'):
+                return None
+
+            # 补齐区间字段（你collision里其实已经有了）
+            t0 = c.get('t_start', c.get('time', None))
+            t1 = c.get('t_end', None)
+            if t0 is None:
+                return None
+            if t1 is None:
+                t1 = t0 + TS
+
+            t0, t1 = q_down(t0), q_up(t1)
+            if t1 <= t0 + EPS:
+                t1 = t0 + TS
+
+            # 返回“统一格式”（兼容旧字段 + 新字段）
+            return {
+                'agent': cid,
+                'mission_tuple': c.get('mission_tuple', mission_tuple),
+                'loc': loc,
+                'time': c.get('time', t0),
+                'type': kind,
+
+                'agent_id': cid,
+                'kind': kind,
+                't_start': t0,
+                't_end': t1,
+            }
         if collision_type not in ('vertex', 'edge'):
             return None
 
@@ -1509,6 +1555,7 @@ class Time_cbs_Batch_Solver:
     def spatio_temporal_a_star(self, graph, start_node, goal_node, launch_time,
                             heuristic, constraints, reservation_table, drone_id):
         import math
+        hit = 0
         open_list = []
         came_from = {}
 
@@ -1571,6 +1618,8 @@ class Time_cbs_Batch_Solver:
                         # 只约束当前无人机（如果你不想过滤也可以删掉这一段）
                         if c.get('agent_id', c.get('agent')) not in (None, drone_id):
                             continue
+                        # hit += 1
+                        # print("[A*] drone", drone_id, "node", neighbor, "t", safe_arrival_time, "constraint_hits", hit)
 
                         loc = c.get('loc', [])
                         # 1) 区间约束

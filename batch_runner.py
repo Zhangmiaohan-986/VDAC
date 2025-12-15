@@ -118,18 +118,19 @@ def build_experiments():
     # ✅ MODIFIED: 你想测试的“配对方案”
     # =========================
     dataset_types = ["R201"]           # 可以是单个（会自动广播到所有实验）
-    num_points_list = [100, 200]
-    truck_list = [3, 5]
-    uav_list = [6, 10]
-    iter_list = [500, 500]
-    seeds = [6, 6]
+    num_points_list = [100, 100, 100]
+    truck_list = [1, 3, 5]
+    uav_list = [3, 6, 10]
+    iter_list = [200, 300, 500]
+    seeds = [6, 6, 6]
+    loop_iter_list = [20, 20, 20]
 
     # 这些也可以单个或按组给
-    target_ranges = [None, None]
-    coord_scales = [1.0, 1.0]
-    Z_coords = [0.05, 0.05]
-    uav_distance_ratios = [None, None]
-    uav_distances = [15, 15]
+    target_ranges = [None, None, None]
+    coord_scales = [1.0, 1.0, 1.0]
+    Z_coords = [0.05, 0.05, 0.05]
+    uav_distance_ratios = [None, None, None]
+    uav_distances = [15, 15, 15]
 
     # =========================
     # ✅ MODIFIED: 对齐/广播工具
@@ -142,7 +143,7 @@ def build_experiments():
         raise ValueError(f"[build_experiments] '{name}' 长度必须为 1 或 {L}，但现在是 {len(lst)}")
 
     L = max(
-        len(num_points_list), len(truck_list), len(uav_list), len(iter_list), len(seeds),
+        len(num_points_list), len(truck_list), len(uav_list), len(iter_list), len(seeds), len(loop_iter_list),
         len(dataset_types), len(target_ranges), len(coord_scales), len(Z_coords),
         len(uav_distance_ratios), len(uav_distances)
     )
@@ -155,7 +156,7 @@ def build_experiments():
         nu   = _pick(uav_list, i, L, "uav_list")
         iters= _pick(iter_list, i, L, "iter_list")
         seed = _pick(seeds, i, L, "seeds")
-
+        loop_iters = _pick(loop_iter_list, i, L, "loop_iter_list")
         tr   = _pick(target_ranges, i, L, "target_ranges")
         cs   = _pick(coord_scales, i, L, "coord_scales")
         zdr  = _pick(Z_coords, i, L, "Z_coords")
@@ -166,7 +167,7 @@ def build_experiments():
         tag_tr = "raw" if tr is None else f"rng{tr[0]}x{tr[1]}"
         tag_ratio = "ratioNA" if ratio is None else f"ratio{ratio:.3f}"
         save_name = (
-            f"{ds}_N{n}_T{nt}_U{nu}_I{iters}_S{seed}_"
+            f"{ds}_N{n}_T{nt}_U{nu}_I{iters}_L{loop_iters}_S{seed}_"
             f"{tag_tr}_scale{cs}_{tag_ratio}_Z{zdr}"
         )
 
@@ -174,6 +175,7 @@ def build_experiments():
             "problem_name": f"case_{nu}UAV_{nt}Truck",
             "save_name": save_name,
             "iterations": iters,
+            "loop_iterations": loop_iters,
 
             "num_trucks": nt,
             "num_uavs": nu,
