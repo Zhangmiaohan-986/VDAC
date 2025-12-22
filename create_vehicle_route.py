@@ -16,6 +16,8 @@ from initialize import *
 from cbs_plan import *
 # from insert_plan import *
 from down_data import *
+# from fast_alns_solver import find_chain_tasks
+from utils_shared import *
 # 定义任务类型常量
 TASK_IDLE = 10            # 空闲待命
 TASK_LOADING = 11         # 货物装载
@@ -65,7 +67,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     vtp_index = A_vtp
     # 提取VTP节点坐标用于聚类
     vtp_coords = np.array([node[i].position for i in vtp_index])
-    
+    len_customer_num = len(A_c)  # 获得客户点数量
    # K-means聚类，将VTP节点均衡分配到与车辆数相同的簇中
     num_trucks = len(T)
     num_clusters = min(num_trucks, len(vtp_index))
@@ -86,7 +88,8 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = None
     # input_filename = "my_special_result_20num_3v_6d_100n"
     # input_filename = "my_special_result_30num_3v_6d_100n"
-    input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
+    # input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
+    input_filename = f"my_special_result_{int(points_num/3)}num_{vehicle_num}v_{uav_num}d_{points_num}n"
     # save_dir = r"VDAC\saved_solutions"
     # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
     save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
@@ -98,7 +101,11 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # num_solutions = 20  # 生成5个候选解
         num_solutions = 20  # 生成30个候选解
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
+        # best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_greedy_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
+        if len(best_customer_plan) != len_customer_num:
+            # 表示生成的初始解方案中，客户点数量与实际客户点数量不一致，需要重新生成初始解方案
+            best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_greedy_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)
         uav_task_dict = defaultdict(dict)
         for customer_id in best_customer_plan:
             drone_id, launch_node, customer_id, recovery_node, launch_vehicle, recovery_vehicle = best_customer_plan[customer_id]
@@ -141,7 +148,9 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 保存输入数据
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
-        custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
+        # custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
+        custom_name = f"my_special_result_{int(points_num/3)}num_{vehicle_num}v_{uav_num}d_{points_num}n"
+
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名
     # input_filename = save_input_data(input_data)
@@ -262,11 +271,15 @@ class DiverseRouteGenerator:
         feasible_plans = []
         num_plan_cost = []
         vehicle_arrival_time = []
+        new_current_vehicle_task = self._create_initial_vehicle_task_data()
+
         # total_important_vtps = []
         for num_index, solution in enumerate(vehicle_candidate_solutions):
             veh_arrival_times = defaultdict(dict)
             # 1. 根据车辆路线，计算车辆到达各个节点的时间
             # y_cijkdu = defaultdict(dict)
+            # if num_index == 4:
+            #     print(f'solution = {solution}')
             for index, route in enumerate(solution, start=0):
                 vehicle_id = self.truck_ids[index]
                 for route_index, node_j in enumerate(route):
@@ -277,7 +290,8 @@ class DiverseRouteGenerator:
                         node_i = route[route_index-1]
                         veh_arrival_times[vehicle_id][node_j] = veh_arrival_times[vehicle_id][node_i] + self.veh_travel[vehicle_id][node_i][node_j]
             # 2. 为每个客户点找到可行的无人机配送方案,车辆的路径随着vehicle——task_data更新
-            current_vehicle_task = self._create_initial_vehicle_task_data()
+            # current_vehicle_task = self._create_initial_vehicle_task_data()
+            current_vehicle_task = deep_copy_vehicle_task_data(new_current_vehicle_task)
             best_customer_plan, best_uav_plan, best_plan_cost, update_vehicle_task_data = self._find_feasible_uav_plans(solution, veh_arrival_times, current_vehicle_task)
             # 根据当前的优化方案，设计得到带时间窗口的最终成本
             # window_cost = calculate_window_cost(best_customer_plan, best_uav_plan, best_plan_cost, veh_arrival_times, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
@@ -310,6 +324,77 @@ class DiverseRouteGenerator:
         best_total_important_vtps = total_important_vtps[min_plan_cost_index]
         return best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, best_vehicle_task, best_vehicle_arrival_time, best_total_important_vtps
 
+    # 快速生成可行的车辆-无人机初始路径方案
+    def generate_greedy_uav_solutions(self, vehicle_candidate_solutions, vehicle_task_data, total_important_vtps):
+        uav_solutions = defaultdict(dict)
+        insert_costs = []
+        customer_uav_plans = {}
+        diversity_costs = []
+        best_uav_solution = None
+        best_insert_cost = float('inf')
+        task_arrival_times = defaultdict(dict)
+        customer_plan = []
+        total_window_cost = []
+        uav_plan = []
+        plan_cost = []
+        total_vehicle_task = []
+        total_vehicle_route = []
+        feasible_plans = []
+        num_plan_cost = []
+        vehicle_arrival_time = []
+        new_current_vehicle_task = self._create_initial_vehicle_task_data()
+
+        # total_important_vtps = []
+        for num_index, solution in enumerate(vehicle_candidate_solutions):
+            veh_arrival_times = defaultdict(dict)
+            # 1. 根据车辆路线，计算车辆到达各个节点的时间
+            # y_cijkdu = defaultdict(dict)
+            # if num_index == 4:
+            #     print(f'solution = {solution}')
+            for index, route in enumerate(solution, start=0):
+                vehicle_id = self.truck_ids[index]
+                for route_index, node_j in enumerate(route):
+                    if route_index == 0:
+                        veh_arrival_times[vehicle_id][node_j] = 0
+                        continue
+                    else:
+                        node_i = route[route_index-1]
+                        veh_arrival_times[vehicle_id][node_j] = veh_arrival_times[vehicle_id][node_i] + self.veh_travel[vehicle_id][node_i][node_j]
+            # 2. 为每个客户点找到可行的无人机配送方案,车辆的路径随着vehicle——task_data更新
+            # current_vehicle_task = self._create_initial_vehicle_task_data()
+            current_vehicle_task = deep_copy_vehicle_task_data(new_current_vehicle_task)
+            best_customer_plan, best_uav_plan, best_plan_cost, update_vehicle_task_data = self._find_all_feasible_uav_plans(solution, veh_arrival_times, current_vehicle_task)
+            # 根据当前的优化方案，设计得到带时间窗口的最终成本
+            # window_cost = calculate_window_cost(best_customer_plan, best_uav_plan, best_plan_cost, veh_arrival_times, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
+            # 根据选择的最优调度方案，更新车辆和无人机在各个节点的状态
+            customer_plan.append(best_customer_plan)
+            uav_plan.append(best_uav_plan)
+            plan_cost.append(best_plan_cost)
+            # total_window_cost.append(window_cost)
+            total_vehicle_task.append(update_vehicle_task_data)
+            total_vehicle_route.append(solution)
+            vehicle_arrival_time.append(veh_arrival_times)
+            # total_important_vtps.append(total_important_vtps[num_index])
+            # 计算每种方案的总成本
+            total_cost = calculate_plan_cost(best_plan_cost, solution, self.vehicle, self.truck_ids, self.uav_ids, self.veh_distance)
+            # 计算带时间窗口的最终成本
+            window_cost,uav_tw_violate_cost, total_cost_dict = calculate_window_cost(best_customer_plan, best_plan_cost, veh_arrival_times, self.vehicle, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
+            total_window_total_cost = calculate_plan_cost(total_cost_dict, solution, self.vehicle, self.truck_ids, self.uav_ids, self.veh_distance)
+            total_window_cost.append(total_window_total_cost)
+            num_plan_cost.append(total_cost)
+        # 找到代价最小的方案组合
+        # num_plan_cost = np.array(num_plan_cost)
+        num_plan_cost = np.array(total_window_cost)
+        min_plan_cost_index = np.argmin(num_plan_cost)
+        best_customer_plan = customer_plan[min_plan_cost_index]
+        best_uav_plan = uav_plan[min_plan_cost_index]
+        best_plan_cost = plan_cost[min_plan_cost_index]
+        best_vehicle_task = total_vehicle_task[min_plan_cost_index]
+        best_vehicle_route = total_vehicle_route[min_plan_cost_index]
+        best_vehicle_arrival_time = vehicle_arrival_time[min_plan_cost_index]
+        best_total_important_vtps = total_important_vtps[min_plan_cost_index]
+        return best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, best_vehicle_task, best_vehicle_arrival_time, best_total_important_vtps
+    
     def _create_initial_vehicle_task_data(self):
             """
             工厂方法：创建一个全新的、原始状态的 vehicle_task_data 对象。
@@ -384,203 +469,75 @@ class DiverseRouteGenerator:
         plan_time = {}
         plan_uav_route = {}
         # 5. 遍历排序后的客户点（从时间差值最大的开始）
-        for customer, time_difference in sorted_customers:
-            # 获取原始任务信息
-            drone_id, orig_launch_node, _, orig_recovery_node, launch_vehicle, recovery_vehicle = best_customer_plan[customer]
-            # test_vehicle_task_data = copy.deepcopy(vehicle_task_data)
-            test_vehicle_task_data = deep_copy_vehicle_task_data(vehicle_task_data)
-            # 更新vehicle_task_data
-            remove_vehicle_task_data = remove_vehicle_task(test_vehicle_task_data, best_customer_plan[customer], vehicle_route)
-            launch_vehicle_index = launch_vehicle - 1
-            recovery_vehicle_index = recovery_vehicle -1
-            launch_node_index = vehicle_route[launch_vehicle_index].index(orig_launch_node)
-            recovery_node_index = vehicle_route[recovery_vehicle_index].index(orig_recovery_node)
-            total_customer = [customer]
-            total_customer.append(un_visit_customer)
-            if launch_vehicle == recovery_vehicle:
-                route_segment = vehicle_route[launch_vehicle_index][launch_node_index:recovery_node_index+1]  # 获得车辆任务路径
-                # 计算无人机任务的插入位置
-                for c in total_customer:
-                    plan, cost, time, uav_route = self.find_total_customer_plan(c, route_segment, drone_id, launch_vehicle)
-                    plan_cost[c] = cost
-                    plan_y[c] = plan
-                    plan_time[c] = time
-                    plan_uav_route[c] = uav_route
-                # 按成本从小到大排序客户点
-                sort_cost, sort_plan, sort_time, sort_uav_route = sort_customer_plans(plan_cost, plan_y, plan_time, plan_uav_route)
-                for new_index, new_y in enumerate(sort_plan[un_visit_customer]):
-                    # new_vehicle_task_data = copy.deepcopy(remove_vehicle_task_data)
-                    new_vehicle_task_data = deep_copy_vehicle_task_data(remove_vehicle_task_data)
-                    drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_y
-                    new_cost = sort_cost[un_visit_customer][new_index]
-                    new_time = sort_time[un_visit_customer][new_index]
-                    new_uav_route = sort_uav_route[un_visit_customer][new_index]
-                    new_plan = {
-                                'drone_id': drone_id,
-                                'launch_vehicle': launch_vehicle,
-                                'recovery_vehicle': recovery_vehicle,
-                                'launch_node': new_launch_node,
-                                'recovery_node': new_recovery_node,
-                                'customer': new_customer,
-                                'launch_time': vehicle_arrival_time[new_launch_vehicle][new_launch_node],
-                                'recovery_time': vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
-                                'energy': self.xeee[drone_id][self.node[new_launch_node].map_key][new_customer][self.node[new_recovery_node].map_key],
-                                'cost': new_cost,
-                                'time': new_time,
-                                'uav_route': new_uav_route
-                            }
-                    new_vehicle_task_data = update_vehicle_task(
-                        new_vehicle_task_data, new_y, vehicle_route
-                    )
-                    # 随后遍历另一个客户点的任务
-                    for orig_index, y in enumerate(sort_plan[customer]):
-                        drone_id, orig_launch_node, orig_customer, orig_recovery_node, launch_vehicle, recovery_vehicle = y
-                        orig_cost = sort_cost[customer][orig_index]
-                        orig_time = sort_time[customer][orig_index]
-                        orig_uav_route = sort_uav_route[customer][orig_index]
-                        orig_plan = {
-                            'drone_id': drone_id,
-                            'launch_vehicle': launch_vehicle,
-                            'recovery_vehicle': recovery_vehicle,
-                            'launch_node': orig_launch_node,
-                            'recovery_node': orig_recovery_node,
-                            'customer': orig_customer,
-                            'launch_time': vehicle_arrival_time[launch_vehicle][orig_launch_node],
-                            'recovery_time': vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
-                            'energy': self.xeee[drone_id][self.node[orig_launch_node].map_key][orig_customer][self.node[orig_recovery_node].map_key],
-                            'cost': orig_cost,
-                            'time': orig_time,
-                            'uav_route': orig_uav_route
-                        }
-                        is_valid_plan = check_same_vehicle_conflict(
-                                    v_id=launch_vehicle,
-                                    drone_id=drone_id,
-                                    i_vtp=orig_launch_node,
-                                    j_vtp=orig_recovery_node,
-                                    solution_route=vehicle_route,
-                                    solution=vehicle_arrival_time,
-                                    vehicle_task_data=new_vehicle_task_data,    
-                                    vehicle = self.vehicle
-                                )
-                        if not is_valid_plan:
-                            continue
-                        else:
-                            if orig_cost + new_cost < best_cost:
-                                best_orig_y = y
-                                best_new_y = new_y
-                                best_orig_cost = orig_cost
-                                best_new_cost = new_cost
-                                best_cost = orig_cost + new_cost
-                                best_orig_y_cijkdu_plan = orig_plan
-                                best_new_y_cijkdu_plan = new_plan
-            else:  # 跨车辆发射和回收情况
-                launch_vehicle_segment = []
-                recovery_vehicle_segment = []
-                launch_vehicle_node_time = vehicle_arrival_time[launch_vehicle][orig_launch_node]
-                for index, node in enumerate(vehicle_route[launch_vehicle_index][launch_node_index:],start = launch_node_index):
-                    if drone_id not in vehicle_task_data[launch_vehicle][node].recovery_drone_list:
-                        if node != self.depot_id:
-                            launch_vehicle_segment.append(node)
-                # 回收车辆从回收节点从后向前遍历
-                for i in range(len(vehicle_route[recovery_vehicle_index][:recovery_node_index]),-1,-1):
-                    # 回收时间大于发射时间
-                    if vehicle_arrival_time[recovery_vehicle][vehicle_route[recovery_vehicle_index][i]] > launch_vehicle_node_time:
-                        if drone_id not in vehicle_task_data[recovery_vehicle][vehicle_route[recovery_vehicle_index][i]].launch_drone_list:
-                            if vehicle_route[recovery_vehicle_index][i] != self.depot_id:
-                                recovery_vehicle_segment.append(vehicle_route[recovery_vehicle_index][i])
-                recovery_vehicle_segment.reverse()
-                # 回收车辆从回收点向后遍历
-                sub_route = vehicle_route[recovery_vehicle_index][recovery_node_index+1:]
-                for index, node in enumerate(sub_route):
-                    if vehicle_arrival_time[recovery_vehicle][node] > launch_vehicle_node_time:
-                        if drone_id not in vehicle_task_data[recovery_vehicle][node].launch_drone_list:  # 记录直到下次任务发射之前
-                            if node != self.depot_id:
-                                    recovery_vehicle_segment.append(node)
-                # 根据两条车辆路径，完成客户点的任务插入
-                for c in total_customer:
-                    plan, cost, time, uav_route = self.find_cross_total_customer_plan(c, launch_vehicle_segment, recovery_vehicle_segment, drone_id, launch_vehicle, recovery_vehicle, vehicle_arrival_time)
-                    plan_cost[c] = cost
-                    plan_y[c] = plan
-                    plan_time[c] = time
-                    plan_uav_route[c] = uav_route
-                # 按成本从小到大排序客户点
-                sort_cost, sort_plan, sort_time, sort_uav_route = sort_customer_plans(plan_cost, plan_y, plan_time, plan_uav_route)
-                for new_index, new_y in enumerate(sort_plan[un_visit_customer]):
-                    # new_vehicle_task_data = self._create_initial_vehicle_task_data()
-                    # new_vehicle_task_data = copy.deepcopy(remove_vehicle_task_data)
-                    new_vehicle_task_data = deep_copy_vehicle_task_data(remove_vehicle_task_data)
-                    drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_y
-                    new_cost = sort_cost[un_visit_customer][new_index]
-                    new_time = sort_time[un_visit_customer][new_index]
-                    new_uav_route = sort_uav_route[un_visit_customer][new_index]
-                    new_plan = {
-                                'drone_id': drone_id,
-                                'launch_vehicle': launch_vehicle,
-                                'recovery_vehicle': recovery_vehicle,
-                                'launch_node': new_launch_node,
-                                'recovery_node': new_recovery_node,
-                                'customer': new_customer,
-                                'launch_time': vehicle_arrival_time[new_launch_vehicle][new_launch_node],
-                                'recovery_time': vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
-                                'energy': self.xeee[drone_id][self.node[new_launch_node].map_key][new_customer][self.node[new_recovery_node].map_key],
-                                'cost': new_cost,
-                                'time': new_time,
-                                'uav_route': new_uav_route
-                            }
-                    # 判断是否存在冲突情况
-                    if new_launch_vehicle == new_recovery_vehicle:
-                        is_valid_plan = check_same_vehicle_conflict(
-                                    v_id=new_launch_vehicle,
-                                    drone_id=drone_id,
-                                    i_vtp=new_launch_node,
-                                    j_vtp=new_recovery_node,
-                                    solution_route=vehicle_route,
-                                    solution=vehicle_arrival_time,
-                                    vehicle_task_data=new_vehicle_task_data,    
-                                    vehicle = self.vehicle
-                                )
-                    else:
-                        is_valid_plan = check_cross_vehicle_conflict_fixed(
-                            new_launch_vehicle,
-                            new_recovery_vehicle,
-                            drone_id,
-                            new_launch_node,
-                            new_recovery_node,
-                            vehicle_route,
-                            vehicle_arrival_time,
-                            new_vehicle_task_data,
-                            vehicle_arrival_time[new_launch_vehicle][new_launch_node],
-                            vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
-                            self.vehicle
-                        )
-                    if not is_valid_plan:
-                        continue
-                    else:
+        try:
+            for customer, time_difference in sorted_customers:
+                # 获取原始任务信息
+                drone_id, orig_launch_node, _, orig_recovery_node, launch_vehicle, recovery_vehicle = best_customer_plan[customer]
+                # test_vehicle_task_data = copy.deepcopy(vehicle_task_data)
+                test_vehicle_task_data = deep_copy_vehicle_task_data(vehicle_task_data)
+                # 更新vehicle_task_data
+                remove_vehicle_task_data = remove_vehicle_task(test_vehicle_task_data, best_customer_plan[customer], vehicle_route)
+                launch_vehicle_index = launch_vehicle - 1
+                recovery_vehicle_index = recovery_vehicle -1
+                launch_node_index = vehicle_route[launch_vehicle_index].index(orig_launch_node)
+                recovery_node_index = vehicle_route[recovery_vehicle_index].index(orig_recovery_node)
+                total_customer = [customer]
+                total_customer.append(un_visit_customer)
+                if launch_vehicle == recovery_vehicle:
+                    route_segment = vehicle_route[launch_vehicle_index][launch_node_index:recovery_node_index+1]  # 获得车辆任务路径
+                    # 计算无人机任务的插入位置
+                    for c in total_customer:
+                        plan, cost, time, uav_route = self.find_total_customer_plan(c, route_segment, drone_id, launch_vehicle)
+                        plan_cost[c] = cost
+                        plan_y[c] = plan
+                        plan_time[c] = time
+                        plan_uav_route[c] = uav_route
+                    # 按成本从小到大排序客户点
+                    sort_cost, sort_plan, sort_time, sort_uav_route = sort_customer_plans(plan_cost, plan_y, plan_time, plan_uav_route)
+                    for new_index, new_y in enumerate(sort_plan[un_visit_customer]):
+                        # new_vehicle_task_data = copy.deepcopy(remove_vehicle_task_data)
+                        new_vehicle_task_data = deep_copy_vehicle_task_data(remove_vehicle_task_data)
+                        drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_y
+                        new_cost = sort_cost[un_visit_customer][new_index]
+                        new_time = sort_time[un_visit_customer][new_index]
+                        new_uav_route = sort_uav_route[un_visit_customer][new_index]
+                        new_plan = {
+                                    'drone_id': drone_id,
+                                    'launch_vehicle': launch_vehicle,
+                                    'recovery_vehicle': recovery_vehicle,
+                                    'launch_node': new_launch_node,
+                                    'recovery_node': new_recovery_node,
+                                    'customer': new_customer,
+                                    'launch_time': vehicle_arrival_time[new_launch_vehicle][new_launch_node],
+                                    'recovery_time': vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
+                                    'energy': self.xeee[drone_id][self.node[new_launch_node].map_key][new_customer][self.node[new_recovery_node].map_key],
+                                    'cost': new_cost,
+                                    'time': new_time,
+                                    'uav_route': new_uav_route
+                                }
                         new_vehicle_task_data = update_vehicle_task(
                             new_vehicle_task_data, new_y, vehicle_route
                         )
-                    # 随后遍历另一个客户点的任务
-                    for orig_index, y in enumerate(sort_plan[customer]):
-                        drone_id, orig_launch_node, orig_customer, orig_recovery_node, launch_vehicle, recovery_vehicle = y
-                        orig_cost = sort_cost[customer][orig_index]
-                        orig_time = sort_time[customer][orig_index]
-                        orig_uav_route = sort_uav_route[customer][orig_index]
-                        orig_plan = {
-                            'drone_id': drone_id,
-                            'launch_vehicle': launch_vehicle,
-                            'recovery_vehicle': recovery_vehicle,
-                            'launch_node': orig_launch_node,
-                            'recovery_node': orig_recovery_node,
-                            'customer': orig_customer,
-                            'launch_time': vehicle_arrival_time[launch_vehicle][orig_launch_node],
-                            'recovery_time': vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
-                            'energy': self.xeee[drone_id][self.node[orig_launch_node].map_key][orig_customer][self.node[orig_recovery_node].map_key],
-                            'cost': orig_cost,
-                            'time': orig_time,
-                            'uav_route': orig_uav_route
-                        }
-                        # 判断是否存在冲突情况
-                        if launch_vehicle == recovery_vehicle:
+                        # 随后遍历另一个客户点的任务
+                        for orig_index, y in enumerate(sort_plan[customer]):
+                            drone_id, orig_launch_node, orig_customer, orig_recovery_node, launch_vehicle, recovery_vehicle = y
+                            orig_cost = sort_cost[customer][orig_index]
+                            orig_time = sort_time[customer][orig_index]
+                            orig_uav_route = sort_uav_route[customer][orig_index]
+                            orig_plan = {
+                                'drone_id': drone_id,
+                                'launch_vehicle': launch_vehicle,
+                                'recovery_vehicle': recovery_vehicle,
+                                'launch_node': orig_launch_node,
+                                'recovery_node': orig_recovery_node,
+                                'customer': orig_customer,
+                                'launch_time': vehicle_arrival_time[launch_vehicle][orig_launch_node],
+                                'recovery_time': vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
+                                'energy': self.xeee[drone_id][self.node[orig_launch_node].map_key][orig_customer][self.node[orig_recovery_node].map_key],
+                                'cost': orig_cost,
+                                'time': orig_time,
+                                'uav_route': orig_uav_route
+                            }
                             is_valid_plan = check_same_vehicle_conflict(
                                         v_id=launch_vehicle,
                                         drone_id=drone_id,
@@ -591,32 +548,164 @@ class DiverseRouteGenerator:
                                         vehicle_task_data=new_vehicle_task_data,    
                                         vehicle = self.vehicle
                                     )
+                            if not is_valid_plan:
+                                continue
+                            else:
+                                if orig_cost + new_cost < best_cost:
+                                    best_orig_y = y
+                                    best_new_y = new_y
+                                    best_orig_cost = orig_cost
+                                    best_new_cost = new_cost
+                                    best_cost = orig_cost + new_cost
+                                    best_orig_y_cijkdu_plan = orig_plan
+                                    best_new_y_cijkdu_plan = new_plan
+                else:  # 跨车辆发射和回收情况
+                    launch_vehicle_segment = []
+                    recovery_vehicle_segment = []
+                    launch_vehicle_node_time = vehicle_arrival_time[launch_vehicle][orig_launch_node]
+                    for index, node in enumerate(vehicle_route[launch_vehicle_index][launch_node_index:],start = launch_node_index):
+                        if drone_id not in vehicle_task_data[launch_vehicle][node].recovery_drone_list:
+                            if node != self.depot_id:
+                                launch_vehicle_segment.append(node)
+                    # 回收车辆从回收节点从后向前遍历
+                    for i in range(len(vehicle_route[recovery_vehicle_index][:recovery_node_index]),-1,-1):
+                        # 回收时间大于发射时间
+                        if vehicle_arrival_time[recovery_vehicle][vehicle_route[recovery_vehicle_index][i]] > launch_vehicle_node_time:
+                            if drone_id not in vehicle_task_data[recovery_vehicle][vehicle_route[recovery_vehicle_index][i]].launch_drone_list:
+                                if vehicle_route[recovery_vehicle_index][i] != self.depot_id:
+                                    recovery_vehicle_segment.append(vehicle_route[recovery_vehicle_index][i])
+                    recovery_vehicle_segment.reverse()
+                    # 回收车辆从回收点向后遍历
+                    sub_route = vehicle_route[recovery_vehicle_index][recovery_node_index+1:]
+                    for index, node in enumerate(sub_route):
+                        if vehicle_arrival_time[recovery_vehicle][node] > launch_vehicle_node_time:
+                            if drone_id not in vehicle_task_data[recovery_vehicle][node].launch_drone_list:  # 记录直到下次任务发射之前
+                                if node != self.depot_id:
+                                        recovery_vehicle_segment.append(node)
+                    # 根据两条车辆路径，完成客户点的任务插入
+                    for c in total_customer:
+                        plan, cost, time, uav_route = self.find_cross_total_customer_plan(c, launch_vehicle_segment, recovery_vehicle_segment, drone_id, launch_vehicle, recovery_vehicle, vehicle_arrival_time)
+                        plan_cost[c] = cost
+                        plan_y[c] = plan
+                        plan_time[c] = time
+                        plan_uav_route[c] = uav_route
+                    # 按成本从小到大排序客户点
+                    sort_cost, sort_plan, sort_time, sort_uav_route = sort_customer_plans(plan_cost, plan_y, plan_time, plan_uav_route)
+                    for new_index, new_y in enumerate(sort_plan[un_visit_customer]):
+                        # new_vehicle_task_data = self._create_initial_vehicle_task_data()
+                        # new_vehicle_task_data = copy.deepcopy(remove_vehicle_task_data)
+                        new_vehicle_task_data = deep_copy_vehicle_task_data(remove_vehicle_task_data)
+                        drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = new_y
+                        new_cost = sort_cost[un_visit_customer][new_index]
+                        new_time = sort_time[un_visit_customer][new_index]
+                        new_uav_route = sort_uav_route[un_visit_customer][new_index]
+                        new_plan = {
+                                    'drone_id': drone_id,
+                                    'launch_vehicle': launch_vehicle,
+                                    'recovery_vehicle': recovery_vehicle,
+                                    'launch_node': new_launch_node,
+                                    'recovery_node': new_recovery_node,
+                                    'customer': new_customer,
+                                    'launch_time': vehicle_arrival_time[new_launch_vehicle][new_launch_node],
+                                    'recovery_time': vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
+                                    'energy': self.xeee[drone_id][self.node[new_launch_node].map_key][new_customer][self.node[new_recovery_node].map_key],
+                                    'cost': new_cost,
+                                    'time': new_time,
+                                    'uav_route': new_uav_route
+                                }
+                        # 判断是否存在冲突情况
+                        if new_launch_vehicle == new_recovery_vehicle:
+                            is_valid_plan = check_same_vehicle_conflict(
+                                        v_id=new_launch_vehicle,
+                                        drone_id=drone_id,
+                                        i_vtp=new_launch_node,
+                                        j_vtp=new_recovery_node,
+                                        solution_route=vehicle_route,
+                                        solution=vehicle_arrival_time,
+                                        vehicle_task_data=new_vehicle_task_data,    
+                                        vehicle = self.vehicle
+                                    )
                         else:
                             is_valid_plan = check_cross_vehicle_conflict_fixed(
-                                launch_vehicle,
-                                recovery_vehicle,
+                                new_launch_vehicle,
+                                new_recovery_vehicle,
                                 drone_id,
-                                orig_launch_node,
-                                orig_recovery_node,
+                                new_launch_node,
+                                new_recovery_node,
                                 vehicle_route,
                                 vehicle_arrival_time,
                                 new_vehicle_task_data,
-                                vehicle_arrival_time[launch_vehicle][orig_launch_node],
-                                vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
+                                vehicle_arrival_time[new_launch_vehicle][new_launch_node],
+                                vehicle_arrival_time[new_recovery_vehicle][new_recovery_node],
                                 self.vehicle
                             )
                         if not is_valid_plan:
                             continue
                         else:
-                            if orig_cost + new_cost < best_cost:
-                                best_orig_y = y
-                                best_new_y = new_y
-                                best_orig_cost = orig_cost
-                                best_new_cost = new_cost
-                                best_cost = orig_cost + new_cost
-                                best_orig_y_cijkdu_plan = orig_plan
-                                best_new_y_cijkdu_plan = new_plan
-        return best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan
+                            new_vehicle_task_data = update_vehicle_task(
+                                new_vehicle_task_data, new_y, vehicle_route
+                            )
+                        # 随后遍历另一个客户点的任务
+                        for orig_index, y in enumerate(sort_plan[customer]):
+                            drone_id, orig_launch_node, orig_customer, orig_recovery_node, launch_vehicle, recovery_vehicle = y
+                            orig_cost = sort_cost[customer][orig_index]
+                            orig_time = sort_time[customer][orig_index]
+                            orig_uav_route = sort_uav_route[customer][orig_index]
+                            orig_plan = {
+                                'drone_id': drone_id,
+                                'launch_vehicle': launch_vehicle,
+                                'recovery_vehicle': recovery_vehicle,
+                                'launch_node': orig_launch_node,
+                                'recovery_node': orig_recovery_node,
+                                'customer': orig_customer,
+                                'launch_time': vehicle_arrival_time[launch_vehicle][orig_launch_node],
+                                'recovery_time': vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
+                                'energy': self.xeee[drone_id][self.node[orig_launch_node].map_key][orig_customer][self.node[orig_recovery_node].map_key],
+                                'cost': orig_cost,
+                                'time': orig_time,
+                                'uav_route': orig_uav_route
+                            }
+                            # 判断是否存在冲突情况
+                            if launch_vehicle == recovery_vehicle:
+                                is_valid_plan = check_same_vehicle_conflict(
+                                            v_id=launch_vehicle,
+                                            drone_id=drone_id,
+                                            i_vtp=orig_launch_node,
+                                            j_vtp=orig_recovery_node,
+                                            solution_route=vehicle_route,
+                                            solution=vehicle_arrival_time,
+                                            vehicle_task_data=new_vehicle_task_data,    
+                                            vehicle = self.vehicle
+                                        )
+                            else:
+                                is_valid_plan = check_cross_vehicle_conflict_fixed(
+                                    launch_vehicle,
+                                    recovery_vehicle,
+                                    drone_id,
+                                    orig_launch_node,
+                                    orig_recovery_node,
+                                    vehicle_route,
+                                    vehicle_arrival_time,
+                                    new_vehicle_task_data,
+                                    vehicle_arrival_time[launch_vehicle][orig_launch_node],
+                                    vehicle_arrival_time[recovery_vehicle][orig_recovery_node],
+                                    self.vehicle
+                                )
+                            if not is_valid_plan:
+                                continue
+                            else:
+                                if orig_cost + new_cost < best_cost:
+                                    best_orig_y = y
+                                    best_new_y = new_y
+                                    best_orig_cost = orig_cost
+                                    best_new_cost = new_cost
+                                    best_cost = orig_cost + new_cost
+                                    best_orig_y_cijkdu_plan = orig_plan
+                                    best_new_y_cijkdu_plan = new_plan
+            return best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan
+        except Exception as e:
+            print(f'Error in find_cross_total_customer_plan: {e}')
+            return None, None, None, None, None, None
 
     # 处理跨地面车辆发射和回收的客户点任务的所有情况及可行方案
     def find_cross_total_customer_plan(self, customer, launch_vehicle_segment, recovery_vehicle_segment, drone_id, launch_vehicle, recovery_vehicle, vehicle_arrival_time):
@@ -721,6 +810,229 @@ class DiverseRouteGenerator:
                     y_uav_route.append(uav_route)
         return y_plan, y_cost, y_time, y_uav_route
             
+    import bisect
+    from collections import defaultdict
+    def find_next_customer_plan(self, customers, solution_route, solution, vehicle_task_data):
+        """
+        全图搜索：从待配送列表(customers)中，找到一个能最快完成闭环任务的方案。
+        
+        策略：
+        1. 遍历车辆路线的时间轴 (Launch Node -> Recovery Node)。
+        2. 对于每一对 (Launch, Recovery) 和 Drone，检查有哪些 customer 在 xeee 表中是可行的。
+        3. 找到【完成时间最早】且【无冲突】的 (Customer, Plan) 组合。
+        """
+        
+        # 结果容器
+        y_cijkdu = {uav_id: [] for uav_id in self.uav_ids} # 仅作兼容保留，实际只返回最优
+        
+        # 全局最优记录
+        best_completion_time = float('inf')  # 最核心的评判标准：谁回来的最早
+        best_cost_metric = float('inf')      # 次要标准：如果时间一样，谁飞得近
+        best_plan = None
+        best_customer = None
+
+        # --------------------------------------------------------------------------
+        # 1. 预处理：生成按时间排序的节点列表
+        # --------------------------------------------------------------------------
+        potential_nodes = []
+        for v_id, route_nodes in enumerate(solution_route):
+            for seq_idx, node_id in enumerate(route_nodes):
+                if node_id not in self.node:
+                    continue
+                node_key = self.node[node_id].map_key
+                vehicle_id = v_id +1
+                # 获取时间
+                arrival_t = float('inf')
+                if vehicle_id in solution:
+                    arrival_t = solution[vehicle_id].get(node_id, float('inf'))
+                
+                potential_nodes.append({
+                    'v_id': vehicle_id, 
+                    'node_id': node_id, 
+                    'node_key': node_key, 
+                    'arrival_time': arrival_t, 
+                    'seq_idx': seq_idx 
+                })
+
+        # 按时间排序：保证最早的发射点排在前面
+        sorted_nodes = sorted(potential_nodes, key=lambda x: x['arrival_time'])
+        
+        # 将待处理客户转为 set，提高查找交集的速度
+        pending_customer_set = set(customers)
+
+        # --------------------------------------------------------------------------
+        # 2. 核心循环：寻找最短任务
+        # --------------------------------------------------------------------------
+        # [优化] 如果已经找到了一个非常完美的方案（比如立刻发射立刻回收），可以提前退出吗？
+        # 目前逻辑是遍历所有组合，找全局 min(recovery_time)。
+        
+        for l_info in sorted_nodes:
+            v_id = l_info['v_id']
+            i_vtp = l_info['node_key']
+            n_id = l_info['node_id']
+            launch_time = l_info['arrival_time'] + abs(self.vehicle[v_id].launchTime)
+            
+            # [剪枝] 如果当前发射时间已经晚于目前找到的 global_best_completion_time，
+            # 那么后面的发射点肯定更晚，直接 break (非常强大的剪枝)
+            if launch_time >= best_completion_time:
+                break
+
+            for drone_id in self.xeee:
+                # [剪枝] 车辆是否携带该无人机
+                if drone_id not in vehicle_task_data[v_id][n_id].drone_list:
+                    continue
+                
+                # [剪枝] 发射点 i_vtp 是否在 xeee 中有记录 (代表有任何可达客户)
+                if i_vtp not in self.xeee[drone_id]:
+                    continue
+                
+                # 获取当前无人机在当前发射点能去的所有客户 (Candidate Customers)
+                # 这是一个 dict: {customer_id: {recovery_node: energy, ...}}
+                feasible_customers_at_launch = self.xeee[drone_id][i_vtp]
+                
+                # 计算【当前发射点能覆盖的】且【在待配送列表中】的客户交集
+                # 这一步极大地减少了无效循环
+                valid_candidates = pending_customer_set.intersection(feasible_customers_at_launch.keys())
+                
+                if not valid_candidates:
+                    continue
+
+                # 内层循环：寻找回收点
+                for r_info in sorted_nodes:
+                    recv_v_id = r_info['v_id']
+                    j_vtp = r_info['node_key']
+                    j_n_id = r_info['node_id']
+                    recovery_arrival_time = r_info['arrival_time']
+
+                    # 1. 时间约束
+                    if recovery_arrival_time <= launch_time:
+                        continue
+                    # if drone_id not in vehicle_task_data[recv_v_id][j_n_id].drone_list:
+                    #     continue
+                    # [剪枝] 如果这个回收时间已经比我们已知的最优方案还要晚，
+                    # 那么对于这个发射点来说，后面的回收点只会更晚，可以直接 break 内层循环
+                    recovery_time = recovery_arrival_time + abs(self.vehicle[recv_v_id].recoveryTime)
+                    if recovery_time >= best_completion_time:
+                        break # 跳出内层回收点循环，换下一个发射点或无人机
+
+                    # 2. 同车逻辑约束
+                    if v_id == recv_v_id:
+                        if r_info['seq_idx'] <= l_info['seq_idx']:
+                            continue
+
+                    # 3. 冲突检测 (Conflict Check)
+                    # 注意：冲突检测通常只跟 车辆/无人机/节点 占用有关，跟具体送哪个客户无关
+                    # 所以我们可以先做冲突检测，再选客户
+                    is_valid_plan = False
+                    if v_id == recv_v_id:
+                        is_valid_plan = check_same_vehicle_conflict(
+                            v_id=v_id, drone_id=drone_id, i_vtp=n_id, j_vtp=j_n_id,
+                            solution_route=solution_route, solution=solution,
+                            vehicle_task_data=vehicle_task_data, vehicle=self.vehicle
+                        )
+                    else:
+                        is_valid_plan = check_cross_vehicle_conflict_fixed(
+                            launch_v_id=v_id, recover_v_id=recv_v_id, drone_id=drone_id,
+                            i_vtp=n_id, j_vtp=j_n_id,
+                            solution_route=solution_route, solution=solution,
+                            vehicle_task_data=vehicle_task_data,
+                            launch_time=launch_time, recovery_time=recovery_time,
+                            vehicle=self.vehicle
+                        )
+                    
+                    if not is_valid_plan:
+                        continue
+
+                    # ------------------------------------------------------
+                    # 4. 在当前确定的 (Drone, Launch, Recovery) 通道中，选一个最佳客户
+                    # ------------------------------------------------------
+                    for cand_customer in valid_candidates:
+                        # 检查该客户是否支持在这个 j_vtp 回收
+                        energy_dict = self.xeee[drone_id][i_vtp][cand_customer]
+                        if j_vtp not in energy_dict:
+                            continue
+                        
+                        energy = energy_dict[j_vtp]
+                        if not (energy > 0 and energy is not None):
+                            continue
+                        
+                        # 计算成本 (通常是距离或能耗)
+                        cost, time_flight, uav_route = cal_low_cost(
+                            n_id, cand_customer, j_n_id, v_id, recv_v_id, drone_id, 
+                            self.uav_travel, self.veh_distance, self.veh_travel, 
+                            self.node, self.vehicle, 2, self.xeee
+                        )
+                        
+                        # 如果走到了这里，说明找到了一个可行的方案！
+                        
+                        # 比较策略：
+                        # 第一优先级：完成时间 (recovery_time) [已经被外层循环和剪枝保证了是很优秀的]
+                        # 第二优先级：成本 (cost/distance) [如果完成时间一样，选飞得最近的]
+                        
+                        # 因为我们在上面已经做了 if recovery_time >= best_completion_time: break
+                        # 所以能运行到这里，recovery_time 一定是 < best_completion_time 的
+                        # 或者等于 best_completion_time (如果上面的剪枝是 >)
+                        
+                        if recovery_time < best_completion_time:
+                            best_completion_time = recovery_time
+                            best_cost_metric = cost
+                            
+                            best_customer = cand_customer
+                            best_plan = {
+                                'drone_id': drone_id,
+                                'launch_vehicle': v_id,
+                                'recovery_vehicle': recv_v_id,
+                                'launch_node': n_id,
+                                'recovery_node': j_n_id,
+                                'customer': cand_customer, # 记录具体是谁
+                                'launch_time': launch_time,
+                                'recovery_time': recovery_time,
+                                'energy': energy,
+                                'cost': cost,
+                                'time': time_flight,
+                                'uav_route': uav_route
+                            }
+                        
+                        elif recovery_time == best_completion_time:
+                            # 如果时间一样，选路程短的
+                            if cost < best_cost_metric:
+                                best_cost_metric = cost
+                                best_customer = cand_customer
+                                best_plan = {
+                                    'drone_id': drone_id,
+                                    'launch_vehicle': v_id,
+                                    'recovery_vehicle': recv_v_id,
+                                    'launch_node': n_id,
+                                    'recovery_node': j_n_id,
+                                    'customer': cand_customer,
+                                    'launch_time': launch_time,
+                                    'recovery_time': recovery_time,
+                                    'energy': energy,
+                                    'cost': cost,
+                                    'time': time_flight,
+                                    'uav_route': uav_route
+                                }
+
+        # 为了保持你原有的返回格式，我们需要构造一下返回
+        # 你的上层代码似乎期望：y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost
+        # 但现在我们只锁定了一个最优的 customer
+        
+        # 将最优方案填入字典，以便兼容上层代码
+        final_y_cijkdu = {uav_id: [] for uav_id in self.uav_ids}
+        final_y_plan = {}
+        final_y_cost = {}
+        
+        if best_plan is not None:
+            drone_id = best_plan['drone_id']
+            # key 的定义
+            key = (drone_id, best_plan['launch_node'], best_customer, best_plan['recovery_node'], 
+                   best_plan['launch_vehicle'], best_plan['recovery_vehicle'])
+            
+            final_y_cijkdu[drone_id].append(best_plan)
+            final_y_plan[key] = best_plan
+            final_y_cost[key] = best_cost_metric
+            
+        return final_y_cijkdu, final_y_plan, final_y_cost, best_plan, best_cost_metric
 
 
     def find_nearest_customer_plan(self, customer, solution_route, solution, vehicle_task_data):
@@ -834,9 +1146,8 @@ class DiverseRouteGenerator:
                                 best_y_cijkdu_plan = plan
 
         return y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost
-
-
-    def _find_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data):
+    
+    def _find_all_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data):
         """找到客户点c的可行无人机配送方案"""
         # 1. 统计每个客户点的服务需求数量
         # customer表示车辆路线，solution表示到达时间
@@ -857,60 +1168,297 @@ class DiverseRouteGenerator:
         sorted_customers = sorted(customer_service_count.items(), 
                                 key=lambda x: x[1], 
                                 reverse=True)
-        # 3. 遍历每个客户点，找到可行的无人机配送方案,完成了当前方案中客户点c的无人机配送方案
-        for customer, service_count in sorted_customers:
-            feasible_plans = []
+        pending_customers = [cust for cust, _cnt in sorted_customers]
+        # --- 防止极端情况下死循环：每个 customer 给一个最大尝试次数 ---
+        max_total_attempts = max(1000, len(pending_customers) * 20)
+        total_attempts = 0
+        retry_counter = defaultdict(int)
+        max_retry_per_customer = 50
+        # 链式删除需要的函数
+        from task_data import deep_remove_vehicle_task
+        while pending_customers:
+            total_attempts += 1
             # 选择当前成本最低，航程最短的无人机配送方案，随后更新车辆和无人机在各个节点的约束状态,根据当前车辆无人机在各个节点状态，选择当前距离最近的无人机配送方案，符合约束条件
-            [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_nearest_customer_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
+            [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_next_customer_plan(pending_customers, vehicle_route, vehicle_arrival_time, vehicle_task_data)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
+            pop_customer = best_y_cijkdu_plan['customer']
+            customer = pop_customer
+            pending_customers.remove(pop_customer)
             # 上述方案为寻找贪婪最优解方案，如果当前全部任务被无人机占据，则需要重新寻找
             if best_y_cijkdu_plan is None:
-                best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = self.greedy_insert_feasible_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data, best_customer_plan)
-                orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
-                new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
-                if orig_customer == customer:
-                    remove_customer = new_customer
-                else:
-                    remove_customer = orig_customer
-                # 删除被对应拆除的方案
-                y = best_customer_plan[remove_customer]
-                del best_customer_plan[remove_customer]
-                del best_plan_cost[remove_customer]
-                del best_uav_plan[y]
-                vehicle_task_data = remove_vehicle_task(vehicle_task_data, y, vehicle_route)
-                # 更新新的记录方案,优先拆谁，优先补充谁
-                if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
-                    best_customer_plan[new_customer] = best_new_y
-                    best_plan_cost[new_customer] = best_new_cost
-                    best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
-                    best_customer_plan[orig_customer] = best_orig_y
-                    best_plan_cost[orig_customer] = best_orig_cost
-                    best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
-                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
-                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
-                else:
-                    best_customer_plan[orig_customer] = best_orig_y
-                    best_plan_cost[orig_customer] = best_orig_cost
-                    best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
-                    best_customer_plan[new_customer] = best_new_y
-                    best_plan_cost[new_customer] = best_new_cost
-                    best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
-                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
-                    vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
-            else: 
+                # === 需要“拆一个再插一个”的贪婪插入 ===
+                print('找不到可行的贪婪插入方案，在生成解方案方案失败。检查车辆和无人机的数量配比配置')
+            else:
+                # === 直接插入 best_y_cijkdu_plan ===
                 drone_id = best_y_cijkdu_plan['drone_id']
                 launch_node = best_y_cijkdu_plan['launch_node']
                 recovery_node = best_y_cijkdu_plan['recovery_node']
                 launch_vehicle = best_y_cijkdu_plan['launch_vehicle']
                 recovery_vehicle = best_y_cijkdu_plan['recovery_vehicle']
-                y = (drone_id, launch_node, customer,recovery_node, launch_vehicle, recovery_vehicle)
-                # 记录最优方案
+
+                y = (drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle)
+
                 best_customer_plan[customer] = y
                 best_plan_cost[customer] = best_y_cost
                 best_uav_plan[y] = best_y_cijkdu_plan
-                # 根据选择的最优调度方案，更新车辆和无人机在各个节点的状态
+
                 vehicle_task_data = update_vehicle_task(vehicle_task_data, y, vehicle_route)
-                
+
         return best_customer_plan, best_uav_plan, best_plan_cost, vehicle_task_data
+
+    def _find_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data):
+            """找到客户点c的可行无人机配送方案"""
+            # 1. 统计每个客户点的服务需求数量
+            # customer表示车辆路线，solution表示到达时间
+            best_customer_plan = defaultdict(dict)
+            best_uav_plan = defaultdict(dict)
+            best_plan_cost = defaultdict(dict)
+            customer_service_count = defaultdict(int)
+            for c in self.A_c:
+                for drone_id in self.xeee:
+                    for vtp_i in self.xeee[drone_id]:
+                        for vtp_j in self.xeee[drone_id][vtp_i][c]:
+                            if vtp_i == vtp_j:
+                                continue
+                            if self.xeee[drone_id][vtp_i][c][vtp_j] is not None:  # 代表存在前往该客户点的配送方式
+                                customer_service_count[c] += 1
+
+            # 2. 按服务数量从大到小排序客户点        
+            sorted_customers = sorted(customer_service_count.items(), 
+                                    key=lambda x: x[1], 
+                                    reverse=True)
+            pending_customers = [cust for cust, _cnt in sorted_customers]
+            # --- 防止极端情况下死循环：每个 customer 给一个最大尝试次数 ---
+            max_total_attempts = max(1000, len(pending_customers) * 20)
+            total_attempts = 0
+            retry_counter = defaultdict(int)
+            max_retry_per_customer = 50
+            # 链式删除需要的函数
+            from task_data import deep_remove_vehicle_task
+            while pending_customers:
+                total_attempts += 1
+                if total_attempts > max_total_attempts:
+                    print("[WARN] pending_customers 插入循环超过最大尝试次数，已赋予最大值，提前退出以避免死循环。")
+                    best_plan_cost[customer] = float('inf')
+                    return best_customer_plan, best_uav_plan, best_plan_cost, vehicle_task_data
+
+                customer = pending_customers.pop(0)
+                retry_counter[customer] += 1
+                if retry_counter[customer] > max_retry_per_customer:
+                    # 这个客户一直插不进去，就先放弃（或你也可以 continue 不放弃）
+                    print(f"[WARN] customer={customer} 重试次数过多，跳过。")
+                    continue
+
+                # 已经有方案了就不重复插
+                if customer in best_customer_plan:
+                    continue
+                # 选择当前成本最低，航程最短的无人机配送方案，随后更新车辆和无人机在各个节点的约束状态,根据当前车辆无人机在各个节点状态，选择当前距离最近的无人机配送方案，符合约束条件
+                [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_nearest_customer_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
+                # 上述方案为寻找贪婪最优解方案，如果当前全部任务被无人机占据，则需要重新寻找
+                if best_y_cijkdu_plan is None:
+                    # === 需要“拆一个再插一个”的贪婪插入 ===
+                    (best_orig_y, best_new_y,
+                    best_orig_cost, best_new_cost,
+                    best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan) = \
+                        self.greedy_insert_feasible_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data, best_customer_plan)
+
+                    # greedy_insert_feasible_plan 可能也失败
+                    if best_orig_y is None or best_new_y is None:
+                        # 插不进去：把 customer 放回队列尾部稍后再试,插入出现问题，有可能是路线太短，难以放入
+                        pending_customers.append(customer)
+                        continue
+
+                    orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
+                    new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
+
+                    # 你原来的 remove_customer 逻辑
+                    if orig_customer == customer:
+                        remove_customer = new_customer
+                    else:
+                        remove_customer = orig_customer
+                    # ============ 关键：删除 remove_customer 的方案前，先做链式删除检查 ============
+                    if remove_customer in best_customer_plan:
+                        assignment_to_remove = best_customer_plan[remove_customer]  # 这个就是 y
+                        orig_vehicle_id = assignment_to_remove[4]  # launch_vehicle（按你 tuple 定义第 5 个）
+
+                        # 1) 先移除这条 assignment 对 vehicle_task_data 的占用
+                        vehicle_task_data = remove_vehicle_task(vehicle_task_data, assignment_to_remove, vehicle_route)
+
+                        # 2) 查链式任务
+                        # 注意：这里用的是 best_customer_plan（相当于 new_state.customer_plan 的角色）
+                        need_to_remove_tasks = find_chain_tasks(
+                            assignment_to_remove,
+                            best_customer_plan,      # customer_plan
+                            vehicle_route,           # vehicle_routes
+                            vehicle_task_data
+                        )
+                        if need_to_remove_tasks != []:
+                            best_plan_cost[customer] = float('inf')
+                            return best_customer_plan, best_uav_plan, best_plan_cost, vehicle_task_data
+
+                        # 3) 先把 remove_customer 自己从三张表里删干净
+                        best_customer_plan.pop(remove_customer, None)
+                        best_plan_cost.pop(remove_customer, None)
+                        best_uav_plan.pop(assignment_to_remove, None)
+
+                        # 4) 处理链式删除：把后续客户也删掉，并更新 vehicle_task_data
+                        #    同时记录这些客户，后面要重新放回 pending 队列
+                        chain_customers_removed = []
+
+                        for chain_customer, chain_assignment in need_to_remove_tasks:
+                            if chain_customer in best_customer_plan:
+                                # 从方案表移除
+                                best_customer_plan.pop(chain_customer, None)
+                                best_plan_cost.pop(chain_customer, None)
+                                best_uav_plan.pop(chain_assignment, None)
+
+                                # 深度删除任务占用
+                                vehicle_task_data = deep_remove_vehicle_task(
+                                    vehicle_task_data,
+                                    chain_assignment,
+                                    vehicle_route,
+                                    orig_vehicle_id
+                                )
+
+                                chain_customers_removed.append(chain_customer)
+
+                        # 5) 把链式被删的客户重新塞回待插入队列（靠前一点更快恢复可行）
+                        #    去重：避免 pending 里已有重复
+                        if chain_customers_removed:
+                            # 让它们优先被重新插入
+                            for cc in reversed(chain_customers_removed):
+                                if cc not in pending_customers and cc not in best_customer_plan:
+                                    pending_customers.insert(0, cc)
+
+                    # ============ 删除完成后：按你原逻辑把 best_orig/best_new 重新塞回去 ============
+                    # 更新新的记录方案,优先拆谁，优先补充谁（保持你原排序逻辑）
+                    if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
+                        # new 先
+                        best_customer_plan[new_customer] = best_new_y
+                        best_plan_cost[new_customer] = best_new_cost
+                        best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
+
+                        best_customer_plan[orig_customer] = best_orig_y
+                        best_plan_cost[orig_customer] = best_orig_cost
+                        best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
+
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                    else:
+                        # orig 先
+                        best_customer_plan[orig_customer] = best_orig_y
+                        best_plan_cost[orig_customer] = best_orig_cost
+                        best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
+
+                        best_customer_plan[new_customer] = best_new_y
+                        best_plan_cost[new_customer] = best_new_cost
+                        best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
+
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+                        vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+
+                    # ============ 如果当前 customer 仍没被成功插入，就把它放回队列再来 ============
+                    if customer not in best_customer_plan:
+                        pending_customers.insert(0, customer)
+
+                else:
+                    # === 直接插入 best_y_cijkdu_plan ===
+                    drone_id = best_y_cijkdu_plan['drone_id']
+                    launch_node = best_y_cijkdu_plan['launch_node']
+                    recovery_node = best_y_cijkdu_plan['recovery_node']
+                    launch_vehicle = best_y_cijkdu_plan['launch_vehicle']
+                    recovery_vehicle = best_y_cijkdu_plan['recovery_vehicle']
+
+                    y = (drone_id, launch_node, customer, recovery_node, launch_vehicle, recovery_vehicle)
+
+                    best_customer_plan[customer] = y
+                    best_plan_cost[customer] = best_y_cost
+                    best_uav_plan[y] = best_y_cijkdu_plan
+
+                    vehicle_task_data = update_vehicle_task(vehicle_task_data, y, vehicle_route)
+
+            return best_customer_plan, best_uav_plan, best_plan_cost, vehicle_task_data
+
+    # def _find_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data):
+    #     """找到客户点c的可行无人机配送方案"""
+    #     # 1. 统计每个客户点的服务需求数量
+    #     # customer表示车辆路线，solution表示到达时间
+    #     best_customer_plan = defaultdict(dict)
+    #     best_uav_plan = defaultdict(dict)
+    #     best_plan_cost = defaultdict(dict)
+    #     customer_service_count = defaultdict(int)
+    #     for c in self.A_c:
+    #         for drone_id in self.xeee:
+    #             for vtp_i in self.xeee[drone_id]:
+    #                 for vtp_j in self.xeee[drone_id][vtp_i][c]:
+    #                     if vtp_i == vtp_j:
+    #                         continue
+    #                     if self.xeee[drone_id][vtp_i][c][vtp_j] is not None:  # 代表存在前往该客户点的配送方式
+    #                         customer_service_count[c] += 1
+
+    #     # 2. 按服务数量从大到小排序客户点        
+    #     sorted_customers = sorted(customer_service_count.items(), 
+    #                             key=lambda x: x[1], 
+    #                             reverse=True)
+    #     # 3. 遍历每个客户点，找到可行的无人机配送方案,完成了当前方案中客户点c的无人机配送方案
+    #     for customer, service_count in sorted_customers:
+    #         feasible_plans = []
+    #         if 12 in vehicle_task_data[2][119].drone_list:
+    #             print(f'12 in vehicle_task_data[2][119].drone_list')
+    #         if customer == 82:
+    #             print(f'customer = {customer}, service_count = {service_count}')
+    #         # 选择当前成本最低，航程最短的无人机配送方案，随后更新车辆和无人机在各个节点的约束状态,根据当前车辆无人机在各个节点状态，选择当前距离最近的无人机配送方案，符合约束条件
+    #         [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_nearest_customer_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
+    #         # 上述方案为寻找贪婪最优解方案，如果当前全部任务被无人机占据，则需要重新寻找
+    #         if best_y_cijkdu_plan is None:
+    #             best_orig_y, best_new_y, best_orig_cost, best_new_cost, best_orig_y_cijkdu_plan, best_new_y_cijkdu_plan = self.greedy_insert_feasible_plan(customer, vehicle_route, vehicle_arrival_time, vehicle_task_data, best_customer_plan)
+    #             orig_drone_id, orig_launch_node, orig_customer, orig_recovery_node, orig_launch_vehicle, orig_recovery_vehicle = best_orig_y
+    #             new_drone_id, new_launch_node, new_customer, new_recovery_node, new_launch_vehicle, new_recovery_vehicle = best_new_y
+    #             if orig_customer == customer:
+    #                 remove_customer = new_customer
+    #             else:
+    #                 remove_customer = orig_customer
+    #             # 删除被对应拆除的方案
+    #             y = best_customer_plan[remove_customer]
+    #             if y == [12,137,76,119,3,2]:
+    #                 print(f'y = {y}')
+    #             del best_customer_plan[remove_customer]
+    #             del best_plan_cost[remove_customer]
+    #             del best_uav_plan[y]
+    #             vehicle_task_data = remove_vehicle_task(vehicle_task_data, y, vehicle_route)
+    #             # 更新新的记录方案,优先拆谁，优先补充谁
+    #             if best_new_y_cijkdu_plan['launch_time'] < best_orig_y_cijkdu_plan['launch_time']:
+    #                 best_customer_plan[new_customer] = best_new_y
+    #                 best_plan_cost[new_customer] = best_new_cost
+    #                 best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
+    #                 best_customer_plan[orig_customer] = best_orig_y
+    #                 best_plan_cost[orig_customer] = best_orig_cost
+    #                 best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
+    #                 vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+    #                 vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+    #             else:
+    #                 best_customer_plan[orig_customer] = best_orig_y
+    #                 best_plan_cost[orig_customer] = best_orig_cost
+    #                 best_uav_plan[best_orig_y] = best_orig_y_cijkdu_plan
+    #                 best_customer_plan[new_customer] = best_new_y
+    #                 best_plan_cost[new_customer] = best_new_cost
+    #                 best_uav_plan[best_new_y] = best_new_y_cijkdu_plan
+    #                 vehicle_task_data = update_vehicle_task(vehicle_task_data, best_orig_y, vehicle_route)
+    #                 vehicle_task_data = update_vehicle_task(vehicle_task_data, best_new_y, vehicle_route)
+    #         else: 
+    #             drone_id = best_y_cijkdu_plan['drone_id']
+    #             launch_node = best_y_cijkdu_plan['launch_node']
+    #             recovery_node = best_y_cijkdu_plan['recovery_node']
+    #             launch_vehicle = best_y_cijkdu_plan['launch_vehicle']
+    #             recovery_vehicle = best_y_cijkdu_plan['recovery_vehicle']
+    #             y = (drone_id, launch_node, customer,recovery_node, launch_vehicle, recovery_vehicle)
+    #             # 记录最优方案
+    #             best_customer_plan[customer] = y
+    #             best_plan_cost[customer] = best_y_cost
+    #             best_uav_plan[y] = best_y_cijkdu_plan
+    #             # 根据选择的最优调度方案，更新车辆和无人机在各个节点的状态
+    #             vehicle_task_data = update_vehicle_task(vehicle_task_data, y, vehicle_route)
+                
+    #     return best_customer_plan, best_uav_plan, best_plan_cost, vehicle_task_data
                 
 
     

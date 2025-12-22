@@ -118,19 +118,19 @@ def build_experiments():
     # ✅ MODIFIED: 你想测试的“配对方案”
     # =========================
     dataset_types = ["R201"]           # 可以是单个（会自动广播到所有实验）
-    num_points_list = [100, 100, 100]
-    truck_list = [1, 3, 5]
-    uav_list = [3, 6, 10]
-    iter_list = [200, 300, 500]
-    seeds = [6, 6, 6]
-    loop_iter_list = [20, 20, 20]
+    num_points_list = [100, 100, 100, 100, 100, 100, 100]
+    truck_list = [2, 1, 3, 4, 5, 2, 2]
+    uav_list = [4, 3, 6, 8, 10, 6, 8]
+    iter_list = [400, 200, 300, 400, 400, 400, 400]
+    seeds = [6, 6, 6, 6, 6, 6, 6]
+    loop_iter_list = [20, 20, 20, 10, 10, 20, 20]
 
     # 这些也可以单个或按组给
-    target_ranges = [None, None, None]
-    coord_scales = [1.0, 1.0, 1.0]
-    Z_coords = [0.05, 0.05, 0.05]
-    uav_distance_ratios = [None, None, None]
-    uav_distances = [15, 15, 15]
+    target_ranges = [None, None, None, None, None, None, None]
+    coord_scales = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    Z_coords = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    uav_distance_ratios = [None, None, None, None, None, None, None]
+    uav_distances = [15, 15, 15, 15, 15, 15, 15]
 
     # =========================
     # ✅ MODIFIED: 对齐/广播工具

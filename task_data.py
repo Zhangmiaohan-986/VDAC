@@ -159,7 +159,7 @@ class vehicle_task:
     def init_dict_vehicle(self):
         """初始化无人机的dict_vehicle"""
         # 为每个可能的车辆ID创建一个预先定义好的 VehicleInfo 类的实例
-        for vehicle_id in range(1, 4):  # 注意：这里硬编码了车辆数量，可能需要优化
+        for vehicle_id in range(1, 11):  # 注意：这里硬编码了车辆数量，可能需要优化.当前代码最多允许的车辆数目为10
             self.dict_vehicle[vehicle_id] = create_vehicle_info_dict()
             # self.dict_vehicle[vehicle_id] = VehicleInfo()
 
@@ -357,13 +357,16 @@ class vehicle_task:
         new_task.arrive_times = self.arrive_times.copy()
         new_task.departure_times = self.departure_times.copy()
 
-        # 4. 根据车辆类型，安全地复制特定属性
+        # 4. 根据车辆类型，安全地复制特定属性,需要独立来复制出来，不能使用copy()方法,需要指向不同对象
         if self.vehicleType == TYPE_TRUCK:
             # self.drone_list 等属性在 TRUCK 类型的对象上保证存在
-            new_task.drone_list = self.drone_list.copy()
-            new_task.launch_drone_list = self.launch_drone_list.copy()
-            new_task.recovery_drone_list = self.recovery_drone_list.copy()
-        
+            # new_task.drone_list = self.drone_list.copy()
+            # new_task.launch_drone_list = self.launch_drone_list.copy()
+            # new_task.recovery_drone_list = self.recovery_drone_list.copy()
+            new_task.drone_list = [d_id for d_id in self.drone_list]
+            # 针对 launch_drone_list，如果它确定是列表（哪怕是空列表），直接用推导式即可
+            new_task.launch_drone_list = [d_id for d_id in self.launch_drone_list]
+            new_task.recovery_drone_list = [d_id for d_id in self.recovery_drone_list]
         elif self.vehicleType == TYPE_UAV:
             # self.drone_belong 属性在 UAV 类型的对象上保证存在
             new_task.drone_belong = self.drone_belong
@@ -491,7 +494,7 @@ def remove_vehicle_task(vehicle_task_data, y, vehicle_route):
                 break
 
     return vehicle_task_data
-
+from initialize import deep_copy_vehicle_task_data
 def restore_vehicle_task_data_for_vehicles(
     temp_vehicle_task_data,
     original_vehicle_task_data,
@@ -517,7 +520,7 @@ def restore_vehicle_task_data_for_vehicles(
 
     # 创建一个新的字典来保存恢复后的数据
     restored_data = temp_vehicle_task_data.copy()
-
+    # restored_data = deep_copy_vehicle_task_data(original_vehicle_task_data)
     for veh_id in changed_vehicle_ids:
         # 如果原始数据里没有这辆车，就直接跳过/或者删掉
         if veh_id not in original_vehicle_task_data:
@@ -544,7 +547,7 @@ def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route, orig_vehicle_i
     drone_id, vtp_i, customer, vtp_j, v_id, recv_v_id = y
     veh_launch_index = v_id -1
     veh_recovery_index = recv_v_id -1
-    update_vheicle_route = vehicle_route.copy()
+    # update_vheicle_route = vehicle_route.copy()
     # 更新vehicle_task中车辆携带无人机状态更新
     if v_id == recv_v_id:
         task_route = vehicle_route[veh_launch_index]
@@ -577,11 +580,13 @@ def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route, orig_vehicle_i
         # 查找是否存在发射任务
         for index, node in enumerate(rm_route_list):
             if index == 0:
-                if v_id in vehicle_task_data[v_id][node].launch_drone_list:
+                if drone_id in vehicle_task_data[v_id][node].launch_drone_list:
                     is_launch_task = True
                     break
             else:
-                if v_id in vehicle_task_data[v_id][node].launch_drone_list:
+                if drone_id not in vehicle_task_data[v_id][node].launch_drone_list and drone_id in vehicle_task_data[v_id][node].drone_list and drone_id not in vehicle_task_data[v_id][node].recovery_drone_list:
+                    vehicle_task_data[v_id][node].drone_list.remove(drone_id)
+                if drone_id in vehicle_task_data[v_id][node].launch_drone_list:
                     is_launch_task = True
                     break
         if not is_launch_task:  # 后续任务未删除
@@ -619,6 +624,7 @@ def deep_remove_vehicle_task(vehicle_task_data, y, vehicle_route, orig_vehicle_i
             if drone_id in vehicle_task_data[v_id][node].recovery_drone_list:
                 # vehicle_task_data[v_id][node].recovery_drone_list.remove(drone_id)
                 vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = v_id
+                break   # 修改因为该点承担后续回收任务，会把后面的节点内容的承担也删掉的错误
             if drone_id in vehicle_task_data[v_id][node].launch_drone_list:
                 vehicle_task_data[drone_id][node].dict_vehicle[v_id]['drone_belong'] = v_id
                 break

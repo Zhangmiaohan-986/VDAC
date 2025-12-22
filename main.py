@@ -6,7 +6,7 @@ import time
 import math
 from collections import defaultdict
 import pandas as pd
-
+from utils_shared import *
 from parseCSV import *
 from parseCSVstring import *
 
@@ -154,79 +154,79 @@ class make_travel:
 		self.totalDistance	 = totalDistance
 		self.path			 = path
 
-def find_keys_and_indices(dictionary, target_value):
-    """
-    查找字典中值对应的键及其索引位置。
+# def find_keys_and_indices(dictionary, target_value):
+#     """
+#     查找字典中值对应的键及其索引位置。
     
-    参数:
-    dictionary (dict): 要查找的字典
-    target_value: 要查找的值
+#     参数:
+#     dictionary (dict): 要查找的字典
+#     target_value: 要查找的值
     
-    返回:
-    list: 包含元组 (键, 索引) 的列表，按键在字典中出现的顺序排列
-    """
-    result = []
-    for index, (key, value) in enumerate(dictionary.items()):
-        if value == target_value:
-            result.append((key, index, value))
-    return result
+#     返回:
+#     list: 包含元组 (键, 索引) 的列表，按键在字典中出现的顺序排列
+#     """
+#     result = []
+#     for index, (key, value) in enumerate(dictionary.items()):
+#         if value == target_value:
+#             result.append((key, index, value))
+#     return result
 
-def find_same_xy_different_z(positions_dict, target_position):
-    """
-    在positions_dict中找到与target_position具有相同x和y坐标，但z坐标不同的项。
+# def find_same_xy_different_z(positions_dict, target_position):
+#     """
+#     在positions_dict中找到与target_position具有相同x和y坐标，但z坐标不同的项。
     
-    参数:
-    positions_dict (dict): 一个键从0到n的字典，每个值是一个(x,y,z)坐标。
-    target_position (tuple): 目标坐标(x,y,z)。
+#     参数:
+#     positions_dict (dict): 一个键从0到n的字典，每个值是一个(x,y,z)坐标。
+#     target_position (tuple): 目标坐标(x,y,z)。
     
-    返回:
-    tuple: (key, key, position)，包含找到项的键和坐标。
-    如果没有找到匹配的项，返回None。
-    """
-    target_x, target_y, target_z = target_position
+#     返回:
+#     tuple: (key, key, position)，包含找到项的键和坐标。
+#     如果没有找到匹配的项，返回None。
+#     """
+#     target_x, target_y, target_z = target_position
     
-    for key, position in positions_dict.items():
-        # 跳过相同的位置
-        if position == target_position:
-            continue
+#     for key, position in positions_dict.items():
+#         # 跳过相同的位置
+#         if position == target_position:
+#             continue
         
-        x, y, z = position
-        # 检查xy是否相同且z不同
-        if x == target_x and y == target_y and z != target_z:
-            # 返回匹配的项(键，键，坐标)格式
-            return (key, key, position)
+#         x, y, z = position
+#         # 检查xy是否相同且z不同
+#         if x == target_x and y == target_y and z != target_z:
+#             # 返回匹配的项(键，键，坐标)格式
+#             return (key, key, position)
     
-    # 如果没有找到匹配项
-    return None
+#     # 如果没有找到匹配项
+#     return None
 
 
 
-def merge_and_renumber_dicts(air_node_types, ground_node_types):
-    """
-    将两个字典合并并重新编号，键从0开始递增。
-    先处理 air_node_types，再处理 ground_node_types，保持顺序。
+# def merge_and_renumber_dicts(air_node_types, ground_node_types):
+#     """
+#     将两个字典合并并重新编号，键从0开始递增。
+#     先处理 air_node_types，再处理 ground_node_types，保持顺序。
     
-    参数:
-    air_node_types (dict): 空中节点类型字典
-    ground_node_types (dict): 地面节点类型字典
+#     参数:
+#     air_node_types (dict): 空中节点类型字典
+#     ground_node_types (dict): 地面节点类型字典
     
-    返回:
-    dict: 合并后重新编号的字典
-    """
-    merged = {}
-    current_index = 0
+#     返回:
+#     dict: 合并后重新编号的字典
+#     """
+#     merged = {}
+#     current_index = 0
     
-    # 处理 air_node_types，保持原始顺序
-    for key in sorted(air_node_types.keys()):
-        merged[current_index] = air_node_types[key]
-        current_index += 1
+#     # 处理 air_node_types，保持原始顺序
+#     for key in sorted(air_node_types.keys()):
+#         merged[current_index] = air_node_types[key]
+#         current_index += 1
     
-    # 处理 ground_node_types，保持原始顺序
-    for key in sorted(ground_node_types.keys()):
-        merged[current_index] = ground_node_types[key]
-        current_index += 1
+#     # 处理 ground_node_types，保持原始顺序
+#     for key in sorted(ground_node_types.keys()):
+#         merged[current_index] = ground_node_types[key]
+#         current_index += 1
     
-    return merged
+#     return merged
 
 # 输出:
 # {0: "airplane", 1: "drone", 2: "tank", 3: "truck"}
