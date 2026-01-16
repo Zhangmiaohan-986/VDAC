@@ -45,7 +45,7 @@ TYPE_UAV 		= 2
 # NUM_POINTS = 100
 SEED = 6
 Z_COORD = 0.05  # 规划无人机空中高度情况
-UAV_DISTANCE = 15
+UAV_DISTANCE = 25
 
 # =============================================================
 
@@ -88,7 +88,8 @@ class make_vehicle:  # 添加车辆和无人机的各类属性集合
 		self.vehicleType	= vehicleType
 		# 将速度转变为Km/h
 		self.takeoffSpeed	= takeoffSpeed * 3.6
-		self.cruiseSpeed	= cruiseSpeed * 3.6
+		# self.cruiseSpeed	= cruiseSpeed * 3.6
+		self.cruiseSpeed	= vehicleSpeed
 		self.landingSpeed	= landingSpeed * 3.6
 		self.yawRateDeg		= yawRateDeg
 		self.cruiseAlt		= cruiseAlt
@@ -269,6 +270,7 @@ class missionControl():
 			self.loop_iterations = config.get('loop_iterations', 300) # 动态获取循环迭代次数
 			self.max_iterations = config.get('iterations', 500) # 动态获取迭代次数
 			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
+			self.air_node_num, self.ground_node_num, self.customer_node_num = config.get('split_ratio', (1/3, 1/3, 1/3)) # 动态获取空中air，地面节点以及客户节点数量
 			self.vehicleFileID = 1 # 假设默认
 			UAVSpeedType = 1
 		else:
@@ -381,14 +383,15 @@ class missionControl():
 			if (vehicleType == TYPE_UAV):
 				tmpUAVs += 1
 				if (tmpUAVs <= numUAVs): # 判断应用无人机的个数，生成无人机的性能状态数据结构参数
-					vehicleSpeed = -1
+					# vehicleSpeed = -1
+					vehicleSpeed = 55  # 无人机速度设定为55km/h
 					self.vehicle[vehicleID] = make_vehicle(vehicleID, vehicleType, takeoffSpeed, cruiseSpeed, landingSpeed, yawRateDeg, cruiseAlt, capacityLbs, launchTime, recoveryTime, serviceTime, batteryPower, flightRange, vehicleSpeed, maxDrones, per_uav_cost)
 				else:  # 如果无人机数量超过numUAVs，则跳出循环
 					break
 			else:
 				tmpTrucks += 1
 				if (tmpTrucks <= numTrucks):
-					vehicleSpeed = 10
+					vehicleSpeed = 30
 					# 车辆速度设定为30km/h
 					# vehicleSpeed = 30
 					self.vehicle[vehicleID] = make_vehicle(vehicleID, vehicleType, takeoffSpeed, cruiseSpeed, landingSpeed, yawRateDeg, cruiseAlt, capacityLbs, launchTime, recoveryTime, serviceTime, batteryPower, flightRange, vehicleSpeed, maxDrones, per_vehicle_cost)
@@ -399,7 +402,7 @@ class missionControl():
 
 		# a)  tbl_locations.csv
 		# 获得空中地面图，空地距离矩阵，位置和节点类型，及所有数据集合。
-		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE)
+		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE, self.air_node_num, self.ground_node_num, self.customer_node_num)
 		# 读取节点位置，类型数据
 		# 使用字典构造函数
 		air_ground_node_types =  merge_and_renumber_dicts(air_node_types, ground_node_types)

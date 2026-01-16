@@ -721,7 +721,7 @@ class IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60):
+        iter, max_iterations, summary_dir=None, max_runtime=60):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -749,6 +749,7 @@ class IncrementalALNS:
         self.early_arrival_cost = early_arrival_cost
         self.late_arrival_cost = late_arrival_cost
         self.iter = iter # 获得仿真实验次数
+        self.summary_dir = summary_dir # 获得保存结果的文件夹
         self.problemName = problemName # 获得问题名称
         # self.max_iterations = max_iterations
         self.max_iterations = max_iterations
@@ -764,10 +765,10 @@ class IncrementalALNS:
         self.base_drone_assignment = self.base_drone_assigment()
         # self.base_vehicle_task_data = DiverseRouteGenerator.create_vehicle_task_data(self.node, self.DEPOT_nodeID, self.V, self.T, self.vehicle, self.uav_travel, self.veh_distance, self.veh_travel, self.N, self.N_zero, self.N_plus, self.A_total, self.A_cvtp, self.A_vtp, self.A_aerial_relay_node, self.G_air, self.G_ground, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.A_c, self.xeee)
         # 破坏算子参数
-        # self.customer_destroy_ratio = (0.2, 0.4)
-        self.customer_destroy_ratio = (0.1, 0.2)
-        self.vtp_destroy_quantity = {'random': (1, 1), 'worst': 1, 'shaw': 2}
-        # self.vtp_destroy_quantity = {'random': (1, 2), 'worst': 1, 'shaw': 2}
+        self.customer_destroy_ratio = (0.2, 0.4)
+        # self.customer_destroy_ratio = (0.1, 0.2)
+        # self.vtp_destroy_quantity = {'random': (1, 1), 'worst': 1, 'shaw': 2}
+        self.vtp_destroy_quantity = {'random': (1, 2), 'worst': 1, 'shaw': 2}
         self.cluster_vtp_dict, self.map_cluster_vtp_dict = self.cluster_vtp_for_customers(k=self.dis_k)
         # 定义算子池，方便后续引用
         self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal, self.destroy_comprehensive_removal,self.destroy_shaw_rebalance_removal]
@@ -5489,6 +5490,16 @@ class IncrementalALNS:
         best_final_objective = final_total_objective_value
         final_current_objective = final_total_objective_value
 
+        best_final_state = current_state.fast_copy()
+        final_best_objective = final_total_objective_value
+        best_final_state.final_best_objective = final_best_objective
+        best_final_uav_cost = sum(current_state.final_uav_cost.values())
+        best_final_win_cost = sum(final_uav_tw_violation_cost.values())
+        best_final_vehicle_max_times = final_vehicle_max_times
+        best_final_global_max_time = final_global_max_time
+        best_total_win_cost = final_window_total_cost
+        best_final_vehicle_route_cost = final_total_objective_value - final_window_total_cost
+
         best_state = current_state.fast_copy()
         best_objective = current_state.destroyed_node_cost
         # current_state.vehicle_routes = [route.copy() for route in current_state.rm_empty_vehicle_route]
@@ -5519,7 +5530,7 @@ class IncrementalALNS:
         
         init_uav_cost = list(current_state.uav_cost.values())
         base_flexibility_bonus = sum(init_uav_cost) / len(init_uav_cost)
-        
+        # best_final_state = current_state.fast_copy()
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
         cooling_rate = 0.985  # 缓慢降温以进行更充分的探索
@@ -5569,20 +5580,22 @@ class IncrementalALNS:
             # 步骤 2.2: 执行策略绑定的破坏与修复
             # =================================================================
             prev_state = current_state.fast_copy()
-            if iteration == 121:
-                print(f'prev_state.vehicle_task_data[1][144].drone_list: {prev_state.vehicle_task_data[1][144].drone_list}')
+            # if iteration == 121:
+            #     print(f'prev_state.vehicle_task_data[1][144].drone_list: {prev_state.vehicle_task_data[1][144].drone_list}')
             # if 12 not in prev_state.vehicle_task_data[1][144].drone_list:
             #     print(f'12 not in prev_state.vehicle_task_data[1][144].drone_list')
-            # if current_state.customer_plan[86] != [12, 144, 86, 142, 1, 1]:
-            #     print(f'current_state.customer_plan[86] != [12, 144, 86, 142, 1, 1]')
+            # if current_state.customer_plan[97] != [8, 140, 97, 139, 1, 2]:
+            #     print(f'current_state.customer_plan[97] != [8, 140, 97, 139, 1, 2]')
             #     if current_state.customer_plan[93] == [12, 114, 93, 144, 3, 1]:
             #         print(f'current_state.customer_plan[93] = [12, 114, 93, 144, 3, 1]')
             #         if 12 not in prev_state.vehicle_task_data[1][144].drone_list:
             #             print(f'12 not in prev_state.vehicle_task_data[1][144].drone_list')
             print(f'当前的任务客户点数量为:{len(current_state.customer_plan.keys())}')
             print(f'当前uav_cost个数为:{len(current_state.uav_cost.keys())}')
-            if len(current_state.uav_cost.keys()) < 33:
-                print(f'当前uav_cost为:{current_state.uav_cost}')
+            if 97 in prev_state.customer_plan.keys():
+                print(f'prev_state.customer_plan[97] == None')
+            # if len(current_state.uav_cost.keys()) < 33:
+            #     print(f'当前uav_cost为:{current_state.uav_cost}')
 
                         # import pdb; pdb.set_trace()
             # prev_objective = current_objective
@@ -5815,12 +5828,12 @@ class IncrementalALNS:
             #     print(f"  > 算子权重: {self.operator_weights}")
             iteration += 1
 
-        # elapsed_time = time.time() - start_time
-        statistics = {
-            'iterations': iteration,
-            'runtime': elapsed_time,
-            'best_objective': best_objective
-        }
+        elapsed_time = time.time() - start_time
+        # statistics = {
+        #     'iterations': iteration,
+        #     'runtime': elapsed_time,
+        #     'best_objective': best_objective
+        # }
         best_arrive_time = best_state.calculate_rm_empty_vehicle_arrive_time(best_state.vehicle_routes)
         best_window_total_cost, best_uav_tw_violation_cost, best_total_cost_dict  = calculate_window_cost(best_state.customer_plan,
                           best_state.uav_cost,
@@ -5835,9 +5848,10 @@ class IncrementalALNS:
         best_vehicle_max_times, best_global_max_time = get_max_completion_time(best_arrive_time)
         best_total_uav_tw_violation_cost = sum(best_uav_tw_violation_cost.values())
         best_total_vehicle_cost = best_objective - best_window_total_cost
+
         # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_arrive_time, best_state.vehicle_task_data, best_state)
-        # # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
-        # # 添加更新空中无人机避障后的信息内容
+        # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
+        # 添加更新空中无人机避障后的信息内容
         # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_state.vehicle_arrive_time, best_state.vehicle_task_data, best_state)
         # best_state_final_vehicle_arrive_time = format_rm_empty_vehicle_arrive_time(
         #     best_state.final_vehicle_plan_time, 
@@ -5858,6 +5872,8 @@ class IncrementalALNS:
         # best_final_win_cost = sum(best_final_uav_tw_violation_cost.values())
         # best_total_win_cost = best_final_window_total_cost
         # best_final_vehicle_max_times, best_final_global_max_time = get_max_completion_time(best_state_final_vehicle_arrive_time)
+        # best_final_vehicle_route_cost = best_final_objective - best_final_window_total_cost
+
         # 保存运行数据
         save_alns_results(
             instance_name=self.problemName + "_" + str(self.iter),  # 换成你实际的算例名
@@ -5894,6 +5910,7 @@ class IncrementalALNS:
             work_time=work_time,                         # 每一代当前解完成时间 list
             final_work_time=final_work_time,                   # 每一代最终方案完成时间 list
             best_final_state=best_final_state,
+            base_dir=self.summary_dir,
         )
         print(f"ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
         return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
@@ -6141,6 +6158,7 @@ class IncrementalALNS:
                 # 如果VTP破坏完全失败，回退到客户破坏模式
                 print("VTP破坏失败，回退到客户破坏模式...")
                 
+                return state
                 # 回退到客户破坏模式：随机选择一个客户进行破坏
                 if current_customers:
                     fallback_customer = self.rng.choice(current_customers)
@@ -6871,7 +6889,7 @@ class IncrementalALNS:
         vehicle_task_data = new_state.vehicle_task_data
         mode = 'vtp' if force_vtp_mode else 'customer'
         # print(f"  > [破坏模式]: 综合最差破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
-        mode = 'customer'
+        # mode = 'customer'
         # mode = 'vtp'
 
         # --- 步骤 1: 识别“最忙”和“最闲”的车辆 ---
@@ -7407,8 +7425,8 @@ class IncrementalALNS:
                             from task_data import deep_remove_vehicle_task
                             # print(f"链式删除客户点 {chain_customer}")
                             vehicle_task_data = deep_remove_vehicle_task(vehicle_task_data, chain_assignment, new_state.vehicle_routes, orig_vehicle_id)
-                            if 12 not in vehicle_task_data[1][144].drone_list or 12 not in vehicle_task_data[1][142].drone_list:
-                                print(f'12 not in vehicle_task_data[1][144].drone_list or 12 not in vehicle_task_data[1][142].drone_list')
+                            # if 12 not in vehicle_task_data[1][144].drone_list or 12 not in vehicle_task_data[1][142].drone_list:
+                            #     print(f'12 not in vehicle_task_data[1][144].drone_list or 12 not in vehicle_task_data[1][142].drone_list')
 
             # 5. 更新空跑节点等状态
             new_state.destroyed_node_cost = new_state.update_calculate_plan_cost(new_state.uav_cost, new_state.vehicle_routes)
@@ -8381,7 +8399,7 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
 
 def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, use_incremental=True):
+        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8400,7 +8418,7 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime)
+        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)

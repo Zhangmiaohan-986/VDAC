@@ -1151,7 +1151,8 @@ def save_alns_results(
     # === [新增] 在此处添加 best_final_state ===
     best_final_state=None,              
     
-    base_dir: str = r"VDAC\saved_solutions",
+    # base_dir: str = r"VDAC\saved_solutions",
+    base_dir = None,
 ) -> None:
     """
     将 ALNS 求解过程与最优解信息保存为 txt 和 Excel 文件。

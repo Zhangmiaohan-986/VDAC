@@ -89,7 +89,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = "my_special_result_20num_3v_6d_100n"
     # input_filename = "my_special_result_30num_3v_6d_100n"
     # input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-    input_filename = f"my_special_result_{int(points_num/3)}num_{vehicle_num}v_{uav_num}d_{points_num}n"
+    input_filename = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
     # save_dir = r"VDAC\saved_solutions"
     # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
     save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
@@ -99,7 +99,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     if saved_file_path is None:
         # 生成多个候选解
         # num_solutions = 20  # 生成5个候选解
-        num_solutions = 20  # 生成30个候选解
+        num_solutions = 10  # 生成30个候选解
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
         # best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_greedy_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
@@ -149,7 +149,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
         # custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-        custom_name = f"my_special_result_{int(points_num/3)}num_{vehicle_num}v_{uav_num}d_{points_num}n"
+        custom_name = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
 
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名
@@ -254,7 +254,7 @@ class DiverseRouteGenerator:
         self._compute_distance_matrices()
         
     # 快速生成可行的车辆-无人机初始路径方案
-    def generate_uav_solutions(self, vehicle_candidate_solutions, vehicle_task_data, total_important_vtps):
+    def  generate_uav_solutions(self, vehicle_candidate_solutions, vehicle_task_data, total_important_vtps):
         uav_solutions = defaultdict(dict)
         insert_costs = []
         customer_uav_plans = {}
@@ -363,7 +363,7 @@ class DiverseRouteGenerator:
             # 2. 为每个客户点找到可行的无人机配送方案,车辆的路径随着vehicle——task_data更新
             # current_vehicle_task = self._create_initial_vehicle_task_data()
             current_vehicle_task = deep_copy_vehicle_task_data(new_current_vehicle_task)
-            best_customer_plan, best_uav_plan, best_plan_cost, update_vehicle_task_data = self._find_all_feasible_uav_plans(solution, veh_arrival_times, current_vehicle_task)
+            best_customer_plan, best_uav_plan, best_plan_cost, update_vehicle_task_data = self._find_all_feasible_uav_plans(solution, veh_arrival_times, current_vehicle_task, self.early_arrival_cost, self.late_arrival_cost)
             # 根据当前的优化方案，设计得到带时间窗口的最终成本
             # window_cost = calculate_window_cost(best_customer_plan, best_uav_plan, best_plan_cost, veh_arrival_times, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost)
             # 根据选择的最优调度方案，更新车辆和无人机在各个节点的状态
@@ -812,7 +812,7 @@ class DiverseRouteGenerator:
             
     import bisect
     from collections import defaultdict
-    def find_next_customer_plan(self, customers, solution_route, solution, vehicle_task_data):
+    def find_next_customer_plan(self, customers, solution_route, solution, vehicle_task_data, early_arrival_cost, late_arrival_cost):
         """
         全图搜索：从待配送列表(customers)中，找到一个能最快完成闭环任务的方案。
         
@@ -1043,6 +1043,7 @@ class DiverseRouteGenerator:
         best_y_cijkdu_plan = None
         xeee = self.xeee.copy()
         # remain_customer = copy.copy(customer)
+        vehicle_arrive_time = solution
 
         for drone_id in xeee:
             for i in xeee[drone_id]:
@@ -1114,7 +1115,10 @@ class DiverseRouteGenerator:
 
                             # 如果所有检查都通过，则这是一个可行的方案
                             cost, time, uav_route = cal_low_cost(i_vtp, customer, j_vtp, v_id, recv_v_id, drone_id, self.uav_travel, self.veh_distance, self.veh_travel, self.node, self.vehicle, 2, self.xeee)
-                            
+                            # 计算时间窗带来的惩罚
+                            insert_plan = {}
+                            insert_plan[customer] = (drone_id, i_vtp, customer, j_vtp, v_id, recv_v_id)
+                            cost+=calculate_customer_window_cost(insert_plan, self.vehicle, vehicle_arrive_time, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.uav_travel, self.node)
                             plan = {
                                 'drone_id': drone_id,
                                 'launch_vehicle': v_id,
@@ -1147,7 +1151,7 @@ class DiverseRouteGenerator:
 
         return y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost
     
-    def _find_all_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data):
+    def _find_all_feasible_uav_plans(self, vehicle_route, vehicle_arrival_time, vehicle_task_data, early_arrival_cost, late_arrival_cost):
         """找到客户点c的可行无人机配送方案"""
         # 1. 统计每个客户点的服务需求数量
         # customer表示车辆路线，solution表示到达时间
@@ -1179,7 +1183,7 @@ class DiverseRouteGenerator:
         while pending_customers:
             total_attempts += 1
             # 选择当前成本最低，航程最短的无人机配送方案，随后更新车辆和无人机在各个节点的约束状态,根据当前车辆无人机在各个节点状态，选择当前距离最近的无人机配送方案，符合约束条件
-            [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_next_customer_plan(pending_customers, vehicle_route, vehicle_arrival_time, vehicle_task_data)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
+            [y_cijkdu, y_plan, y_cost, best_y_cijkdu_plan, best_y_cost] = self.find_next_customer_plan(pending_customers, vehicle_route, vehicle_arrival_time, vehicle_task_data, early_arrival_cost, late_arrival_cost)  # 输入客户点及车辆，筛选出所有可能的决策方案，并获得距离最优最近的方案
             pop_customer = best_y_cijkdu_plan['customer']
             customer = pop_customer
             pending_customers.remove(pop_customer)

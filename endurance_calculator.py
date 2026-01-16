@@ -53,7 +53,9 @@ def give_endurance(node, vehicle, travel, v, i, j, k, totalTimeij, totalTimejk, 
 	E = vehicle[v].batteryPower
 	# 完成任务链i->j->k所需的最小时间
 	minimum_time_required = TTvij + FTvij + LTvij + sj + TTvjk + FTvjk + LTvjk
-
+	Total_route_length = travel[v][i][j].totalDistance + travel[v][j][k].totalDistance
+	if travel[v][i][j].totalDistance > 100 or travel[v][j][k].totalDistance > 100:
+		return -1
 	# a) Takeoff from customer i:
 	newT = Thrust(mj, 0)
 	Ea = TTvij*(Pi(newT, p) + Pp(newT))

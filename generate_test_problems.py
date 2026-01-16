@@ -12,8 +12,10 @@ def generate_points(num_points,seed):
 
     # file_path_R201 = r'/Volumes/Zhang/TRE-双层路网协同巡检调度优化/coding/tits_CMDVRP-CT/tits_CMDVRP-CT/map/R201.txt'
     # file_path_RC101 = r'/Volumes/Zhang/TRE-双层路网协同巡检调度优化/coding/tits_CMDVRP-CT/tits_CMDVRP-CT/map/RC101.txt'
-    file_path_R201 = r'VDAC\map_test\R201.txt'
-    file_path_RC101 = r'VDAC\map_test\RC101.txt'
+    # file_path_R201 = r'VDAC\map_test\R201.txt'
+    # file_path_RC101 = r'VDAC\map_test\RC101.txt'
+    file_path_R201 = r'VDAC\map_test\RC1_4_1.TXT'
+
     np.random.seed(seed)
     with open(file_path_R201, 'r') as file:
         data0_R201 = file.read()
@@ -27,7 +29,8 @@ def generate_points(num_points,seed):
     numeric_cols = ['CUST', 'XCOORD.', 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
     df_R201[numeric_cols] = df_R201[numeric_cols].apply(pd.to_numeric, errors='coerce')
     start_pos = (float(df_R201.at[0, 'XCOORD.']), float(df_R201.at[0, 'YCOORD.']))
-    if num_points <= 100:
+    # if num_points <= 100:
+    if num_points <= 300:
         # position_points_sample = df_R201.sample(n=num_points,random_state=seed)
         # position_points_sample = position_points_sample.sort_index()
         # return position_points_sample, start_pos
@@ -41,14 +44,24 @@ def generate_points(num_points,seed):
             position_points_sample = depot_row.copy()
         else:
             sample_size = min(num_points - 1, len(customer_rows))
-            sampled_customers = customer_rows.sample(
-                n=sample_size,
-                random_state=seed
+            sampled_customers = _sample_customers_diameter_and_min_neighbors(
+                customer_rows=customer_rows,
+                k=sample_size,
+                seed=seed,
+                max_pair_dist=100.0,  # 任意两点<=100km
+                near_dist=40.0,       # 至少2个邻居<=40km
+                min_nb=2              # ✅ 想要更紧就改成3
             )
-            position_points_sample = pd.concat(
-                [depot_row, sampled_customers],
-                axis=0
-            )
+            # ✅ ================== 改动：先筛后抽（结束） ==================
+            position_points_sample = pd.concat([depot_row, sampled_customers], axis=0)
+            # sampled_customers = customer_rows.sample(
+            #     n=sample_size,
+            #     random_state=seed
+            # )
+            # position_points_sample = pd.concat(
+            #     [depot_row, sampled_customers],
+            #     axis=0
+            # )
 
         # 用原始 index 排序，这样 depot 一定在最前面（index=0）
         position_points_sample = position_points_sample.sort_index()
@@ -110,7 +123,7 @@ def generate_points(num_points,seed):
 #     for line in data0_R1.strip().split('\n'):
 #         data_R1.append(line.split())
 #     columns = ["CUST", "XCOORD.", 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
-#     df_R1 = pd.DataFrame(data_R1[1:], columns=columns)
+#     df_R1 = pd.DataFrame(data_R1[1:], columns=columns) 
 #     # 将字符型列转换为数字
 #     numeric_cols = ['CUST', 'XCOORD.', 'YCOORD.', 'DEMAND', 'READY', 'DUE', 'SERVICE']
 #     df_R1[numeric_cols] = df_R1[numeric_cols].apply(pd.to_numeric, errors='coerce')
@@ -210,6 +223,227 @@ def generate_graph(position_points, seed, uav_distance=None, prob=0.75):
 
     return G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions
 
+# ✅ ================== 约束抽样器（新增） ==================
+def _sample_with_neighbor_bounds(customer_rows, k, seed,
+                                 radius=40.0, min_nb=2, max_nb=3,
+                                 trials=120):
+    """
+    从 customer_rows 中抽 k 个点，使得在抽样子集内：
+    每个点的“近邻数”(distance < radius) ∈ [min_nb, max_nb]
+
+    返回：满足约束的 DataFrame（尽量满k；如果极端情况下凑不齐，会返回最接近的一次）
+    """
+    if k <= 0:
+        return customer_rows.iloc[0:0].copy()
+    if len(customer_rows) <= k:
+        # 点都不够，直接返回（后续你可以选择放宽约束）
+        return customer_rows.copy()
+
+    coords = customer_rows[['XCOORD.', 'YCOORD.']].to_numpy(dtype=float)
+    n = len(coords)
+
+    # 距离矩阵（n*n）
+    d = np.sqrt(((coords[:, None, :] - coords[None, :, :]) ** 2).sum(axis=2))
+    np.fill_diagonal(d, np.inf)
+
+    # 邻接矩阵：近邻(<radius)
+    near = (d < radius)
+
+    # 先做一次“必要条件”预筛：在全体里近邻数 < min_nb 的点必然无解
+    deg_full = near.sum(axis=1)
+    feasible_mask = (deg_full >= min_nb)
+    feasible_idx = np.where(feasible_mask)[0]
+    if len(feasible_idx) < k:
+        # 兜底：可行点都不够，退一步——只保证“至少1个近邻”或直接返回可行点
+        # 你要是绝对必须 2–3，那这里就只能接受“凑不齐”
+        return customer_rows.iloc[feasible_idx].copy()
+
+    rng = np.random.RandomState(seed)
+
+    best_S = None
+    best_score = -1
+
+    # --- 多次尝试构造满足度约束的子集 ---
+    for t in range(trials):
+        # 从可行点里挑一个起点：偏向“近邻数中等”的点更容易做到≤3
+        start = int(rng.choice(feasible_idx))
+        S = [start]
+        inS = np.zeros(n, dtype=bool); inS[start] = True
+
+        # 子集内度数
+        deg_in = np.zeros(n, dtype=int)
+
+        # 构造到k个
+        while len(S) < k:
+            candidates = np.where((~inS) & feasible_mask)[0]
+            if len(candidates) == 0:
+                break
+
+            # 计算候选加入后的可行性与得分
+            best_c = None
+            best_c_score = -1e18
+
+            # 当前“缺邻居”的点（希望新点靠近它们）
+            need_more = (inS & (deg_in < min_nb))
+
+            for c in candidates:
+                neigh_to_S = near[c] & inS
+                add_to = np.where(neigh_to_S)[0]
+
+                # 如果加进来，会把某些已有点度数推到 > max_nb，直接不允许
+                if np.any(deg_in[add_to] + 1 > max_nb):
+                    continue
+
+                # 新点本身加入后在S里的近邻数
+                new_deg = int(neigh_to_S.sum())
+                if new_deg > max_nb:
+                    continue
+                # 注意：new_deg 可能 < min_nb，允许暂时不足，后面靠再加点补齐
+                # 但是如果它在“全体可行池里”近邻都很少，也不太可能补齐
+                # 用 deg_full[c] 给它一点惩罚/奖励
+
+                # 得分：优先帮助当前缺邻居的点，同时希望新点本身也能更容易达到min_nb
+                help_need = int((neigh_to_S & need_more).sum())
+                score = (
+                    3.0 * help_need +          # ✅ 帮助“缺邻居”的老点
+                    0.4 * new_deg +            # ✅ 新点连上越多越好（但不能>3）
+                    0.05 * deg_full[c]         # ✅ 新点在全体里邻居多一点，后续可补齐概率更大
+                )
+
+                # 加一点随机扰动，避免陷入局部最优
+                score += rng.uniform(-0.15, 0.15)
+
+                if score > best_c_score:
+                    best_c_score = score
+                    best_c = c
+
+            if best_c is None:
+                break
+
+            # 真正加入 best_c
+            inS[best_c] = True
+            S.append(best_c)
+
+            # 更新度数
+            connected = np.where(near[best_c] & inS)[0]
+            # connected 包含自身吗？near对角是False，所以不包含
+            deg_in[connected] += 1
+            deg_in[best_c] = int((near[best_c] & inS).sum())
+
+        # 评价这次构造
+        S_idx = np.array(S, dtype=int)
+        degS = np.array([int((near[i] & inS).sum()) for i in S_idx], dtype=int)
+
+        # 满足度约束的数量
+        ok = np.sum((degS >= min_nb) & (degS <= max_nb))
+        # 同时偏好“接近满k”
+        score_total = ok * 10 + len(S_idx)
+
+        if score_total > best_score:
+            best_score = score_total
+            best_S = S_idx
+
+        # 如果已经满k且全部满足，直接收工
+        if len(S_idx) == k and ok == k:
+            break
+
+    # 输出最好的一次
+    if best_S is None:
+        # 理论上不会到这里
+        best_S = rng.choice(feasible_idx, size=k, replace=False)
+
+    # 如果最好的一次超过k（一般不会），截断
+    if len(best_S) > k:
+        best_S = best_S[:k]
+
+    return customer_rows.iloc[best_S].copy()
+# ✅ ================== 约束抽样器（新增结束） ==================
+
+# ✅ ================== 先筛后抽：直径<=100 + 每点近邻>=min_nb（新增） ==================
+def _sample_customers_diameter_and_min_neighbors(
+    customer_rows: pd.DataFrame,
+    k: int,
+    seed: int,
+    max_pair_dist: float = 100.0,   # 任意两点<=100
+    near_dist: float = 40.0,        # 近邻阈值<=40
+    min_nb: int = 2,                # 每点至少2个近邻（要>=3就改成3）
+    center_trials: int = 80,        # 尝试多少个中心
+    draw_trials: int = 120          # 每个中心尝试抽样次数
+):
+    """
+    返回 sampled_customers（DataFrame，结构与 customer_rows 完全一致）
+    目标：
+      (1) 任意两点距离 <= max_pair_dist
+      (2) 每个点在子集内的近邻数（<=near_dist） >= min_nb
+    """
+    if k <= 0:
+        return customer_rows.iloc[0:0].copy()
+    if len(customer_rows) <= k:
+        return customer_rows.copy()
+
+    rng = np.random.RandomState(seed)
+    coords = customer_rows[['XCOORD.', 'YCOORD.']].to_numpy(dtype=float)
+    n = len(coords)
+
+    # 全局距离矩阵
+    D = np.sqrt(((coords[:, None, :] - coords[None, :, :]) ** 2).sum(axis=2))
+    np.fill_diagonal(D, np.inf)
+
+    # ✅ 用“中心半径R=max_pair_dist/2”的充分条件保证直径<=max_pair_dist
+    R = max_pair_dist / 2.0
+
+    center_ids = rng.choice(n, size=min(center_trials, n), replace=False)
+
+    best_idx = None
+    best_score = (-1, -1)  # (满足近邻下界的点数, 子集规模)
+
+    for c in center_ids:
+        center = coords[c]
+        pool = np.where(np.linalg.norm(coords - center, axis=1) <= R + 1e-9)[0]
+        if len(pool) < k:
+            continue
+
+        # pool 内近邻关系（<=near_dist）
+        near_pool = (D[np.ix_(pool, pool)] <= near_dist + 1e-9)
+        np.fill_diagonal(near_pool, False)
+        deg_pool = near_pool.sum(axis=1)
+
+        # 必要条件：在pool内度数>=min_nb才可能
+        feasible_mask = (deg_pool >= min_nb)
+        feasible_pool = pool[feasible_mask]
+        if len(feasible_pool) < k:
+            continue
+
+        # 在 feasible_pool 内做多次随机抽样，找满足“每点>=min_nb近邻”的子集
+        for t in range(draw_trials):
+            idx = rng.choice(feasible_pool, size=k, replace=False)
+
+            # 子集内近邻度数
+            subD = D[np.ix_(idx, idx)]
+            subNear = (subD <= near_dist + 1e-9)
+            np.fill_diagonal(subNear, False)
+            subDeg = subNear.sum(axis=1)
+
+            satisfied = int(np.sum(subDeg >= min_nb))
+            score = (satisfied, k)
+
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+
+            if satisfied == k:
+                # 完全满足，直接返回
+                return customer_rows.iloc[idx].copy()
+
+    # 兜底：如果没找到完全满足的，返回“最接近”的那次；再不行就随机k个
+    if best_idx is not None:
+        return customer_rows.iloc[best_idx].copy()
+
+    idx = rng.choice(n, size=k, replace=False)
+    return customer_rows.iloc[idx].copy()
+# ✅ ================== 新增结束 ==================
+
+
 # 分割长边的函数
 def split_long_edges(graph, threshold, starting_node_id):
     positions = nx.get_node_attributes(graph, 'pos')
@@ -292,7 +526,6 @@ def split_long_edges(graph, threshold, starting_node_id):
 #
 #     return G_air,G_ground,air_adj_matrix,air_pos,ground_adj_matrix,ground_pos
 
-# 生成随机树的函数
 def add_random_tree(G, distance_matrix, coordinates, max_connect_num=None):
     if max_connect_num is None:
         max_connect_num = 3
@@ -333,6 +566,67 @@ def add_random_tree(G, distance_matrix, coordinates, max_connect_num=None):
                         connect_count[current] += 1
                         connect_count[neighbor] += 1
     return G
+# 生成随机树的函数
+# def add_random_tree(G, distance_matrix, coordinates, max_connect_num=None):
+#     if max_connect_num is None:
+#         max_connect_num = 3
+#     num_nodes = len(distance_matrix)
+
+#     # 先用 MST 保证全连通，再做原本的随机加边
+#     visited = np.full((num_nodes, num_nodes), False)
+#     connect_count = {i: 0 for i in range(num_nodes)}
+
+#     # 构造完全图并取最小生成树，避免分断
+#     complete = nx.Graph()
+#     for i in range(num_nodes):
+#         complete.add_node(i)
+#     for i in range(num_nodes):
+#         for j in range(i + 1, num_nodes):
+#             w = distance_matrix[i, j]
+#             complete.add_edge(i, j, weight=w)
+
+#     mst = nx.minimum_spanning_tree(complete)
+#     for u, v, data in mst.edges(data=True):
+#         G.add_edge(u, v, weight=data["weight"])
+#         visited[u, v] = visited[v, u] = True
+#         connect_count[u] += 1
+#         connect_count[v] += 1
+
+#     # 保留原有“最近路径+随机加边”的逻辑以丰富度数
+#     coordinates_origin = (0, 0, 0)
+#     distance_origin = compute_distance_matrix_3D(coordinates, coordinates_origin)
+#     sorted_indices_origin = np.argsort(distance_origin)[0, 0]
+#     near_path = find_nearest_path(distance_matrix, sorted_indices_origin)
+#     for i in range(len(near_path)-1):
+#         current = near_path[i]
+#         next_current = near_path[i+1]
+#         current_prob = connect_prob(connect_count[current])
+#         if random.random() < current_prob:
+#             G.add_edge(current,next_current,weight=distance_matrix[current,next_current])
+#             connect_count[current] += 1
+#             connect_count[next_current] += 1
+#             visited[current,next_current] = True
+#             visited[next_current,current] = True
+#     # 继续遍历未连接的节点，按 50% 概率连接
+#     for current in near_path:
+#         # 获取当前节点的距离排序
+#         sorted_neighbors = np.argsort(distance_matrix[current])
+#         for neighbor in sorted_neighbors:
+#             # 检查连接是否已经存在，且是否当前节点和邻居节点不是同一节点
+#             if not visited[current, neighbor] and current != neighbor:
+#                 # 仅当两个节点的连接次数都少于 3 时才考虑连接
+#                 if connect_count[current] < max_connect_num and connect_count[neighbor] < 10:
+#                     # 50% 概率连接
+#                     # 连接最近的节点（确保 neighbor 也是 current 最近的）
+#                     # if sorted_neighbors[1] == neighbor or sorted_neighbors[0] == neighbor:
+#                     if random.random() < connect_prob(connect_count[current]):
+#                         # 添加边并更新连接计数
+#                         G.add_edge(current, neighbor, weight=distance_matrix[current, neighbor])
+#                         visited[current, neighbor] = True
+#                         visited[neighbor, current] = True
+#                         connect_count[current] += 1
+#                         connect_count[neighbor] += 1
+#     return G
 
 def find_nearest_path(distance_matrix, start_index):
     num_nodes = len(distance_matrix)
@@ -536,7 +830,7 @@ def visualize_tower_connections(G_air, G_ground):
     # plt.savefig('/Users/zhangmiaohan/PycharmProjects/gurobi_test/tits_CMDVRP-CT/map/env_map/100节点示意图1.1.jpg', dpi=300, bbox_inches='tight', pad_inches=0)
     plt.show()  # 本地显示图形
 
-def generate_complex_network(num_points, seed, Z_coord, uav_distance):
+def generate_complex_network(num_points, seed, Z_coord, uav_distance, air_node_num, ground_node_num, customer_node_num):
     # 0. 生成原始数据点
     position_points, start_pos = generate_points(num_points, seed)
     # 新增有关时间窗的考量
@@ -559,9 +853,12 @@ def generate_complex_network(num_points, seed, Z_coord, uav_distance):
     remaining_points = position_points.iloc[1:].copy()
     # 计算每类节点的数量
     total_remaining = len(remaining_points)
-    num_air_nodes = total_remaining // 3  # 空中中继集结点
-    num_vtp_nodes = total_remaining // 3  # 地面中继集结点
-    num_customer_nodes = total_remaining - num_air_nodes - num_vtp_nodes  # 客户点
+    # num_air_nodes = total_remaining // 3  # 空中中继集结点
+    # num_vtp_nodes = total_remaining // 3  # 地面中继集结点
+    # num_customer_nodes = total_remaining - num_air_nodes - num_vtp_nodes  # 客户点
+    num_air_nodes = air_node_num  # 空中中继集结点
+    num_vtp_nodes = ground_node_num  # 地面中继集结点，地面中继点少选一个，在把仓库加入，数量则正好
+    num_customer_nodes = customer_node_num  # 客户点
     # 随机抽样划分
     air_nodes = remaining_points.sample(n=num_air_nodes, random_state=seed)
     air_nodes['NODE_TYPE'] = 'AIR'  # 定义空中中继节点集合

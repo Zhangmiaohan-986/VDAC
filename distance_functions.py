@@ -76,6 +76,7 @@ def calcMultirotorTravelTime(takeoffSpeed, cruiseSpeed, landSpeed, yawRateDeg, i
 	# 在这种情况下，我们不需要任何旅行（特别是起飞/降落时间）
 	if (([initx, inity, initz] == [goalx, goaly, goalz])):
 		totalTime = 0.0
+		myPath = [init_node.map_key, goal_node.map_key]
 	else:
 		# 1) 调整高度（例如，起飞）
 		#	 NOTE: 只有当我们的初始/目标坐标不同（否则我们不会准备起飞）

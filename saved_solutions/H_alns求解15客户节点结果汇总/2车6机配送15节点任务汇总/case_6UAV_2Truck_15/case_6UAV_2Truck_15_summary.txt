@@ -1,0 +1,118 @@
+==== ALNS Result Summary ====
+instance_name: case_6UAV_2Truck_15
+best_objective: 1024.871013044924
+elapsed_time: 114.11233806610107
+best_global_max_time: 10.11786943381263
+len_y_cost: 301
+len_y_best: 21
+len_win_cost: 289
+len_uav_route_cost: 289
+len_vehicle_route_cost: 289
+strategy_weights:
+{
+  "structural": 2.106438676894217,
+  "internal": 3.5034397347138437
+}
+
+operator_weights:
+{
+  "structural": {
+    "destroy": {
+      "destroy_random_removal": 3.300946851048499,
+      "destroy_worst_removal": 2.6797697533946483,
+      "destroy_comprehensive_removal": 3.2092918395996093,
+      "destroy_shaw_rebalance_removal": 2.0316306083768083
+    },
+    "repair": {
+      "repair_greedy_insertion": 2.3907239678082988,
+      "repair_regret_insertion": 2.887145757675171,
+      "noise_regret_insertion": 2.2359325063248967,
+      "repair_kNN_regret": 2.603426474286942
+    }
+  },
+  "internal": {
+    "destroy": {
+      "destroy_random_removal": 3.9665603637695312,
+      "destroy_worst_removal": 2.0275202971868658,
+      "destroy_comprehensive_removal": 2.383003628253937,
+      "destroy_shaw_rebalance_removal": 3.6173036247491837
+    },
+    "repair": {
+      "repair_greedy_insertion": 2.037894070148468,
+      "repair_regret_insertion": 3.734991192817688,
+      "noise_regret_insertion": 2.0635033319704235,
+      "repair_kNN_regret": 2.472603983813897
+    }
+  }
+}
+
+best_vehicle_max_times:
+{
+  "1": 10.11786943381263,
+  "2": 2.23606797749979
+}
+
+best_arrive_time_brief:
+{
+  "num_vehicles": 2,
+  "total_records": 4
+}
+
+best_window_total_cost: 777.7922648186756
+best_total_cost_dict:
+{
+  "45": 46.679127423563415,
+  "46": 27.164486369189866,
+  "47": 35.36824981480044,
+  "48": 93.98518533138022,
+  "49": 41.88468532756438,
+  "50": 105.73743612559149,
+  "51": 32.63201130864487,
+  "52": 60.65528769772075,
+  "53": 88.98168313532227,
+  "54": 58.608301531119466,
+  "55": 50.30106888756963,
+  "56": 50.60345333177261,
+  "57": 55.722441994835606,
+  "58": 29.468846539600595
+}
+
+best_uav_tw_violation_cost:
+{
+  "51": 28.189370621525583,
+  "45": 0.0,
+  "57": 36.21229127792483,
+  "46": 0.0,
+  "55": 6.011788507470097,
+  "49": 11.240237304602543,
+  "56": 11.549608507925452,
+  "58": 13.526218244763548,
+  "47": 1.2643662729374894,
+  "54": 5.9480635542199956,
+  "53": 32.72605035349556,
+  "48": 8.798788578090733,
+  "52": 36.823376377099216,
+  "50": 31.168703605105392
+}
+
+best_state_total_cost_attr: 1024.871013044924
+best_final_uav_cost: 560.8508307045428
+best_final_objective: 1054.4384457359693
+best_final_win_cost: 246.5088668051783
+best_total_win_cost: 807.359697509721
+best_final_vehicle_route_cost: 247.0787482262483
+best_final_state_total_cost_attr: 1025.92669709287
+best_final_vehicle_max_times:
+{
+  "1": 14.40220974973551,
+  "2": 2.269401310833123
+}
+
+best_final_global_max_time: 14.40220974973551
+len_final_uav_cost: 288
+len_final_total_list: 289
+len_final_win_cost: 288
+len_final_total_objective: 289
+len_final_vehicle_route_cost: 289
+len_work_time: 289
+len_final_work_time: 289

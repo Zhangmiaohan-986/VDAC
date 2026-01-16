@@ -117,20 +117,42 @@ def build_experiments():
     # =========================
     # ✅ MODIFIED: 你想测试的“配对方案”
     # =========================
-    dataset_types = ["R201"]           # 可以是单个（会自动广播到所有实验）
-    num_points_list = [100, 100, 100, 100, 100, 100, 100]
-    truck_list = [2, 1, 3, 4, 5, 2, 2]
-    uav_list = [4, 3, 6, 8, 10, 6, 8]
-    iter_list = [400, 200, 300, 400, 400, 400, 400]
-    seeds = [6, 6, 6, 6, 6, 6, 6]
-    loop_iter_list = [20, 20, 20, 10, 10, 20, 20]
+    # dataset_types = ["R201"]           # 可以是单个（会自动广播到所有实验）
+    dataset_types = ["RC1_4_1"]           # 可以是单个（会自动广播到所有实验）
+
+    # num_points_list = [100, 100, 100, 100, 100, 100, 100]
+    # truck_list = [2, 1, 3, 4, 5, 3, 2]
+    # uav_list = [4, 3, 6, 8, 10, 3, 8]
+    # iter_list = [400, 200, 300, 400, 400, 400, 400]
+    # seeds = [6, 6, 6, 6, 6, 6, 6]
+    # loop_iter_list = [20, 20, 20, 10, 10, 20, 20]
+    # num_points_list = [60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60]
+    # num_points_list = [105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105]
+    # truck_list = [1, 1, 1, 1, 1, 2,2,2,2,3,3,3,3,3,4,4,4,4,4,5,5,5,5,5]
+    # truck_list = [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5]
+    num_points_list = [160,160,160,160,160,160,160,160]
+    truck_list = [2,6,2,4,4,4,6,6]
+    uav_list = [6,6,8,4,8,12,12,18]
+    iter_list = [500,500,500,500,500,500,500,500]
+    seeds = [6,6,6,6,6,6,6,6]
+    loop_iter_list = [10,10,10,10,10,10,10,10]
+    target_ranges = [None,None,None,None,None,None,None,None]
+    coord_scales = [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]
+    Z_coords = [0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05]
+    uav_distance_ratios = [None, None,None,None,None,None,None,None]
+    uav_distances = [20, 20,20,20,20,20,20,20]
+    # uav_list = [1, 2, 3, 4, 5, 2, 4, 6, 8, 10, 3, 6, 9, 12, 15, 4, 8, 12, 16, 20, 5, 10, 15, 20, 25]
+    # uav_list = [1, 2, 3, 4, 5, 2, 4, 6, 8, 3, 6, 9, 12, 15, 4, 8, 12, 16, 20, 5, 10, 15, 20, 25]
+    # iter_list = [300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300]
+    # seeds = [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
+    # loop_iter_list = [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20]
 
     # 这些也可以单个或按组给
-    target_ranges = [None, None, None, None, None, None, None]
-    coord_scales = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    Z_coords = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
-    uav_distance_ratios = [None, None, None, None, None, None, None]
-    uav_distances = [15, 15, 15, 15, 15, 15, 15]
+    # target_ranges = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
+    # coord_scales = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    # Z_coords = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    # uav_distance_ratios = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
+    # uav_distances = [25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25]
 
     # =========================
     # ✅ MODIFIED: 对齐/广播工具
@@ -197,7 +219,8 @@ def build_experiments():
             "uav_distance": ud,
             "uav_distance_ratio": ratio,
 
-            "split_ratio": (1/3, 1/3, 1/3),
+            # "split_ratio": (15, 54, 30),  # 分别对应空中air，地面节点以及客户节点数量
+            "split_ratio": (25, 84, 50),  # 分别对应空中air，地面节点以及客户节点数量
 
             "resume_if_exists": True,
         }

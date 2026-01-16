@@ -183,7 +183,29 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	sigma[0] = 0.0
 	for k in A_cust:
 		sigmaprime[k] = node[k].serviceTimeUAV/60
-	
+	# 车辆-无人机数目
+	numTrucks = len(T)
+	numUAVs = len(V)
+	numCustomers = len(C)
+	solveAlns = "H-alns"
+	# 判断当前阶段任务是否有文件夹了，没有就建立
+	ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
+	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
+	# 1) 确保 ROOT_BASE_DIR 存在
+	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
+
+	# 2) ROOT_BASE_DIR 下的 SUMMARY_PARENT
+	parent_dir = os.path.join(ROOT_BASE_DIR, SUMMARY_PARENT)
+	if not os.path.isdir(parent_dir):
+		os.makedirs(parent_dir, exist_ok=True)  # 不存在就创建
+	# 存在就不管
+
+	# 3) SUMMARY_PARENT 下的 SUMMARY_FOLDER
+	summary_dir = os.path.join(parent_dir, SUMMARY_FOLDER)
+	if not os.path.isdir(summary_dir):
+		os.makedirs(summary_dir, exist_ok=True)  # 不存在就创建
+
 	# 上述内容将基础参数全部处理完成，随后开始仿真实验处理
 	results_all = init_results_framework(["H_ALNS"])  # 后续加别的算法名即可
 	iter_num = 1 # 仿真实验次数,便于计算平均值等方案
@@ -241,7 +263,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
 			air_node_types, ground_node_types, A_c, xeee,
 			customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-			iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
+			iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True
 		)
 		# T_alns_initial_state = initial_state.fast_copy()
 		# 使用传统ALNS求解,输出最佳方案结果，并保存到文件中
@@ -291,7 +313,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			final_work_time_curve_list=H_alns_final_work_time,
 		)
 		print(f"H-ALNS求解完成。")
-	export_results_to_excel(results_all, str('H_ALNS_'+problemName), save_dir=SAVE_DIR_TOTAL)
+	export_results_to_excel(results_all, str('H_ALNS_'+problemName+'customer_node_num_'+str(len(C))), save_dir=SAVE_DIR_TOTAL)
 		
 # ========= 工具函数 =========
 def _to_py(obj):
