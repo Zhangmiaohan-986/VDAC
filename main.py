@@ -46,7 +46,9 @@ TYPE_UAV 		= 2
 SEED = 6
 Z_COORD = 0.05  # 规划无人机空中高度情况
 UAV_DISTANCE = 25
-
+# seed = getattr(self, "seed", 6)
+# Z_coord = getattr(self, "Z_coord", 0.05)
+# uav_distance = getattr(self, "uav_distance", 15)
 # =============================================================
 
 def make_dict():# 设计实现一个可以无线嵌套的dict
@@ -272,6 +274,22 @@ class missionControl():
 			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
 			self.air_node_num, self.ground_node_num, self.customer_node_num = config.get('split_ratio', (1/3, 1/3, 1/3)) # 动态获取空中air，地面节点以及客户节点数量
 			self.vehicleFileID = 1 # 假设默认
+			self.seed = int(config.get("seed", 6))
+			self.Z_coord = float(config.get("Z_coord", 0.05))
+			self.uav_distance = float(config.get("uav_distance", 15))
+			global SEED, Z_COORD, UAV_DISTANCE
+			SEED = self.seed
+			Z_COORD = self.Z_coord
+			UAV_DISTANCE = self.uav_distance
+
+			# 锁随机源（影响 parcelWtLbs、网络生成、ALNS内部随机等）
+			random.seed(self.seed)
+			np.random.seed(self.seed)
+
+			# 保存/分发标识
+			self.run_tag = config.get("save_name", "default_experiment")
+			self.algorithm = config.get("algorithm", "H_ALNS")
+			self.output_root = config.get("output_root", os.path.join(self.base_dir, "saved_solutions"))
 			UAVSpeedType = 1
 		else:
 		# 保留你原来的 sys.argv 逻辑作为备用，或者直接写死默认值
@@ -356,7 +374,19 @@ class missionControl():
 		print('Calling a Heuristic to solve VDCD-AC...')
 		# 调用启发式算法解决mFSTSP-VDS问题
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
-		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations, self.loop_iterations)
+		# solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations, self.loop_iterations)
+		solve_mfstsp_heuristic(
+			self.node, self.vehicle, self.air_matrix, self.ground_matrix,
+			self.air_node_types, self.ground_node_types, self.num_points,
+			numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance,
+			self.G_air, self.G_ground, self.customer_time_windows_h,
+			self.early_arrival_cost, self.late_arrival_cost,
+			self.problemName, self.max_iterations, self.loop_iterations,
+			run_tag=self.run_tag,
+			algorithm=self.algorithm,
+			seed=self.seed,
+			output_root=self.output_root
+		)
 		print('所有任务完成')
 
 	# 读取车辆数据

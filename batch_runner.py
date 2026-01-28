@@ -301,6 +301,176 @@ def run_batch_experiments():
     print(f"结果目录: {save_dir}")
     print("==========================================")
 
+import hashlib
+import random
+import numpy as np
+from copy import deepcopy
+from joblib import Parallel, delayed
 
+def _set_all_seeds(seed: int):
+    """锁死常用随机源，保证不同rep/算法不同seed且可复现"""
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    except Exception:
+        pass
+
+def _stable_seed(base_seed: int, save_name: str, alg: str, rep_id: int) -> int:
+    """稳定派生seed：同一(配置,算法,rep)永远得到同一seed"""
+    key = f"{base_seed}|{save_name}|{alg}|{rep_id}"
+    h = hashlib.md5(key.encode("utf-8")).hexdigest()
+    return int(h[:8], 16)  # 32-bit
+
+def _limit_threads(n: int = 1):
+    """并行时强烈建议限制BLAS/OMP线程，避免CPU超卖导致更慢"""
+    os.environ["OMP_NUM_THREADS"] = str(n)
+    os.environ["MKL_NUM_THREADS"] = str(n)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(n)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(n)
+
+def _try_limit_gurobi_threads(n: int = 1):
+    """可选：限制Gurobi线程，避免进程并行×线程叠加"""
+    try:
+        from gurobipy import setParam
+        setParam("Threads", n)
+    except Exception:
+        pass
+
+def _expected_total_xlsx(output_root: str, algorithm: str, problem_name: str, run_tag: str, seed: int) -> str:
+    """
+    对齐 solve_mfstsp_heuristic.py 里的 export_results_to_excel 命名规则：
+    problemName = f"{algorithm}__{problemName}__{run_tag}__seed{seed}"
+    xlsx_path  = f"{problemName}_data_total.xlsx"
+    """
+    fn = f"{algorithm}__{problem_name}__{run_tag}__seed{seed}_data_total.xlsx"
+    return os.path.join(output_root, "data_total", fn)
+
+def run_one_task(base_config: dict, rep_id: int, alg: str, output_root: str):
+    """
+    单任务：一个配置 × 一个算法 × 一次rep
+    - 强制 loop_iterations=1（因为重复已外提）
+    - 生成唯一 save_name/run_tag
+    - 生成唯一seed并锁随机源
+    """
+    cfg = deepcopy(base_config)
+
+    base_save_name = cfg["save_name"]
+    base_seed = int(cfg.get("seed", 0))
+    seed = _stable_seed(base_seed, base_save_name, alg, rep_id)
+
+    # 并行建议：限制线程
+    _limit_threads(1)
+    _try_limit_gurobi_threads(1)
+
+    # 锁随机源（同时也会影响你在 main.py 里用到的 random / numpy）
+    _set_all_seeds(seed)
+
+    # 这些字段要传给 missionControl/solver
+    cfg["seed"] = seed
+    cfg["algorithm"] = alg
+    cfg["output_root"] = output_root
+
+    # 关键：外提重复 → 单任务只跑一次
+    cfg["loop_iterations"] = 1
+
+    # 关键：唯一 run_tag（保存隔离的核心）
+    run_tag = f"{base_save_name}__ALG-{alg}__R{rep_id:02d}__S{seed}"
+    cfg["save_name"] = run_tag
+
+    # 并行跳过逻辑：如果总表xlsx已存在则跳过（最稳）
+    xlsx_path = _expected_total_xlsx(output_root, alg, cfg["problem_name"], run_tag, seed)
+    if cfg.get("resume_if_exists", True) and os.path.exists(xlsx_path):
+        return {"status": "skip", "run_tag": run_tag, "alg": alg, "rep": rep_id, "seed": seed, "xlsx": xlsx_path}
+
+    # 日志
+    log_dir = os.path.join(output_root, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"{run_tag}.log")
+
+    t0 = time.time()
+    try:
+        _ = missionControl(config=cfg)
+        dur = time.time() - t0
+        msg = f"[OK] {run_tag} finished in {dur:.2f}s\n"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} {msg}")
+        return {"status": "ok", "run_tag": run_tag, "alg": alg, "rep": rep_id, "seed": seed, "sec": dur, "xlsx": xlsx_path}
+    except Exception as e:
+        dur = time.time() - t0
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat()} [FAIL] {run_tag}\n")
+            f.write(str(e) + "\n")
+            f.write(traceback.format_exc() + "\n")
+        return {"status": "fail", "run_tag": run_tag, "alg": alg, "rep": rep_id, "seed": seed, "sec": dur, "err": str(e)}
+
+def run_batch_experiments_parallel(n_jobs: int = 8, force_repeats: int | None = None, algorithms=None):
+    """
+    并行批跑：
+    - n_jobs: 并行进程数（通道数）
+    - force_repeats: 论文固定跑5次就传5（覆盖config里的loop_iterations）
+    - algorithms: 多算法对比列表，例如 ["H_ALNS","T_ALNS"]
+    """
+    # 统一输出根目录（建议用绝对路径）
+    output_root = os.path.abspath(r"VDAC\saved_solutions")
+    os.makedirs(output_root, exist_ok=True)
+    os.makedirs(os.path.join(output_root, "data_total"), exist_ok=True)
+
+    experiments = build_experiments()
+    total_exp = len(experiments)
+
+    if algorithms is None:
+        algorithms = ["H_ALNS"]  # 默认只跑H_ALNS，你可以改成 ["H_ALNS","T_ALNS"]
+
+    tasks = []
+    for cfg in experiments:
+        repeats = int(cfg.get("loop_iterations", 1))
+        if force_repeats is not None:
+            repeats = int(force_repeats)
+
+        for alg in algorithms:
+            for rep_id in range(repeats):
+                tasks.append((cfg, rep_id, alg))
+
+    print("==========================================")
+    print(f"开始并行批量实验：配置数={total_exp} 算法数={len(algorithms)} 总任务数={len(tasks)} 并行 n_jobs={n_jobs}")
+    print(f"输出根目录: {output_root}")
+    print("==========================================\n")
+
+    start_all = time.time()
+    results = Parallel(n_jobs=n_jobs, backend="loky", verbose=10)(
+        delayed(run_one_task)(cfg, rep_id, alg, output_root)
+        for (cfg, rep_id, alg) in tasks
+    )
+
+    dur_all = time.time() - start_all
+    ok = sum(r["status"] == "ok" for r in results)
+    sk = sum(r["status"] == "skip" for r in results)
+    fl = sum(r["status"] == "fail" for r in results)
+
+    print("\n==========================================")
+    print("并行批量实验结束。")
+    print(f"总耗时: {dur_all:.2f} 秒")
+    print(f"OK: {ok}  SKIP: {sk}  FAIL: {fl}")
+    print(f"输出根目录: {output_root}")
+    print("==========================================")
+
+    return results
+
+
+# if __name__ == "__main__":
+#     run_batch_experiments()
 if __name__ == "__main__":
-    run_batch_experiments()
+    # 1) 用config里的 loop_iterations（你现在是10）
+    run_batch_experiments_parallel(n_jobs=10)
+
+    # 2) 论文要求每个配置固定跑5次，就用这一行（把上面那行注释掉）
+    # run_batch_experiments_parallel(n_jobs=8, force_repeats=5)
+
+    # 3) 多算法对比（示例）
+    # run_batch_experiments_parallel(n_jobs=8, force_repeats=5, algorithms=["H_ALNS","T_ALNS"])

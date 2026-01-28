@@ -721,7 +721,7 @@ class IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, summary_dir=None, max_runtime=60):
+        iter, max_iterations, summary_dir=None, max_runtime=60, seed=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -758,7 +758,11 @@ class IncrementalALNS:
         # self.temperature = 500.0
         # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
-        self.rng = rnd.default_rng(42)
+        # self.rng = rnd.default_rng(42)
+        # ===== PATCH: 每个任务/rep 使用自己的随机流（可复现）=====
+        self.seed = None if seed is None else int(seed)
+        self.rng = np.random.default_rng(self.seed)
+
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间
@@ -8399,7 +8403,7 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
 
 def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True):
+        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True, seed=None):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8418,7 +8422,7 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime)
+        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime, seed=seed)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)
