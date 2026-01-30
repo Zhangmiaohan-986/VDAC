@@ -91,7 +91,7 @@ def solve_mfstsp_heuristic(
     numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground,
     customer_time_windows_h, early_arrival_cost, late_arrival_cost,
     problemName, max_iterations, loop_iterations,
-    run_tag=None, algorithm="H_ALNS", seed=None, output_root=None):
+    run_tag=None, algorithm=None, seed=None, output_root=None):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -221,13 +221,13 @@ def solve_mfstsp_heuristic(
 	# 	os.makedirs(summary_dir, exist_ok=True)  # 不存在就创建
 
 	# ===== PATCH: 并行安全的目录结构（按algorithm + run_tag隔离）=====
-	solveAlns_tag = {"H_ALNS": "H-alns", "T_ALNS": "T-alns"}.get(algorithm, str(algorithm))
+	solveAlns_tag = {"H_ALNS": "H_alns", "T_ALNS": "T_alns", "T_I_ALNS": "T_I_alns"}.get(algorithm, str(algorithm))
 
 	ROOT_BASE_DIR = output_root or r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
 	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
 
-	SUMMARY_PARENT = f"{solveAlns_tag}求解{numCustomers}客户节点结果汇总"
-	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
+	SUMMARY_PARENT = f"{solveAlns_tag}solve_{numCustomers}customers_results_summary"
+	SUMMARY_FOLDER = f"{numTrucks}trucks_{numUAVs}uavs_deliver_{numCustomers}customers_tasks_summary"
 
 	if run_tag is None:
 		run_tag = f"{algorithm}__{problemName}__seed{seed}"
@@ -272,7 +272,7 @@ def solve_mfstsp_heuristic(
 		# rm_empty_vehicle_route, empty_nodes_by_vehicle = rm_empty_node(init_customer_plan, init_vehicle_route)
 		# rm_empty_node_cost = calculate_plan_cost(init_uav_plan, rm_empty_vehicle_route, vehicle, T, V, veh_distance)
 		# 搭建高效ALNS算法求解框架
-		from fast_alns_solver import create_fast_initial_state, solve_with_fast_alns, solve_with_T_alns
+		from fast_alns_solver import create_fast_initial_state, solve_with_fast_alns, solve_with_T_alns, solve_with_T_I_alns
 		
 		# 创建初始解状态
 		initial_state = create_fast_initial_state(
@@ -287,34 +287,20 @@ def solve_mfstsp_heuristic(
 		H_alns_initial_state = initial_state.fast_copy()
 		T_alns_initial_state = initial_state.fast_copy()
 		# 使用高效ALNS求解（增量式算法，避免深拷贝）,输出最佳方案结果，并保存到文件中
-		(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
-		H_alns_best_final_win_cost, H_alns_best_total_win_cost, H_alns_best_final_global_max_time, H_alns_best_global_max_time, H_alns_best_window_total_cost, 
-		H_alns_best_total_uav_tw_violation_cost, H_alns_best_total_vehicle_cost, H_alns_elapsed_time, H_alns_win_cost, H_alns_uav_route_cost, H_alns_vehicle_route_cost, 
-		H_alns_final_uav_cost, H_alns_final_total_list, H_alns_final_win_cost, H_alns_final_total_objective, H_alns_y_cost, H_alns_y_best, H_alns_work_time, 
-		H_alns_final_work_time) = solve_with_fast_alns(
-			initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
-			N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
-			A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
-			air_node_types, ground_node_types, A_c, xeee,
-			customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-			iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True, seed=seed
-		)
-		# T_alns_initial_state = initial_state.fast_copy()
-		# 使用传统ALNS求解,输出最佳方案结果，并保存到文件中
-		# (T_alns_best_state, T_alns_best_final_state, T_alns_best_objective, T_alns_best_final_objective, T_alns_best_final_uav_cost, 
-		# T_alns_best_final_win_cost, T_alns_best_total_win_cost, T_alns_best_final_global_max_time, T_alns_best_global_max_time, T_alns_best_window_total_cost, 
-		# T_alns_best_total_uav_tw_violation_cost, T_alns_best_total_vehicle_cost, T_alns_elapsed_time, T_alns_win_cost, T_alns_uav_route_cost, T_alns_vehicle_route_cost, 
-		# T_alns_final_uav_cost, T_alns_final_total_list, T_alns_final_win_cost, T_alns_final_total_objective, T_alns_y_cost, T_alns_y_best, T_alns_work_time, 
-		# T_alns_final_work_time) = solve_with_T_alns(
-		# 	T_alns_initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
-		# 	N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
-		# 	A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
-		# 	air_node_types, ground_node_types, A_c, xeee,
-		# 	customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-		# 	iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True
-		# )
-		
-		record_one_run(
+		if algorithm == "H_ALNS":
+			(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
+			H_alns_best_final_win_cost, H_alns_best_total_win_cost, H_alns_best_final_global_max_time, H_alns_best_global_max_time, H_alns_best_window_total_cost, 
+			H_alns_best_total_uav_tw_violation_cost, H_alns_best_total_vehicle_cost, H_alns_elapsed_time, H_alns_win_cost, H_alns_uav_route_cost, H_alns_vehicle_route_cost, 
+			H_alns_final_uav_cost, H_alns_final_total_list, H_alns_final_win_cost, H_alns_final_total_objective, H_alns_y_cost, H_alns_y_best, H_alns_work_time, 
+			H_alns_final_work_time) = solve_with_fast_alns(
+				H_alns_initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
+				N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
+				A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
+				air_node_types, ground_node_types, A_c, xeee,
+				customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+				iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True, seed=seed
+			)
+			record_one_run(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
 			results_all[algorithm],
 			# --- state（只存不导出）---
 			best_state_list=H_alns_best_state,
@@ -345,8 +331,102 @@ def solve_mfstsp_heuristic(
 			y_best_curve_list=H_alns_y_best,
 			work_time_curve_list=H_alns_work_time,
 			final_work_time_curve_list=H_alns_final_work_time,
-		)
-		print(f"H-ALNS求解完成。")
+			)
+			print(f"H-ALNS_finished_{iter}_iterations")
+		elif algorithm == "T_ALNS":
+			T_alns_initial_state = initial_state.fast_copy()
+			# 使用传统ALNS求解,输出最佳方案结果，并保存到文件中
+			(T_alns_best_state, T_alns_best_final_state, T_alns_best_objective, T_alns_best_final_objective, T_alns_best_final_uav_cost, 
+			T_alns_best_final_win_cost, T_alns_best_total_win_cost, T_alns_best_final_global_max_time, T_alns_best_global_max_time, T_alns_best_window_total_cost, 
+			T_alns_best_total_uav_tw_violation_cost, T_alns_best_total_vehicle_cost, T_alns_elapsed_time, T_alns_win_cost, T_alns_uav_route_cost, T_alns_vehicle_route_cost, 
+			T_alns_final_uav_cost, T_alns_final_total_list, T_alns_final_win_cost, T_alns_final_total_objective, T_alns_y_cost, T_alns_y_best, T_alns_work_time, 
+			T_alns_final_work_time) = solve_with_T_alns(
+				T_alns_initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
+				N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
+				A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
+				air_node_types, ground_node_types, A_c, xeee,
+				customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+				iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True, seed=seed
+			)
+			record_one_run(T_alns_best_state, T_alns_best_final_state, T_alns_best_objective, T_alns_best_final_objective, T_alns_best_final_uav_cost, 
+			results_all[algorithm],
+			# --- state（只存不导出）---
+			best_state_list=T_alns_best_state,
+			best_final_state_list=T_alns_best_final_state,
+			# --- 标量 ---
+			best_objective_list=T_alns_best_objective,
+			best_final_objective_list=T_alns_best_final_objective,
+			best_final_uav_cost_list=T_alns_best_final_uav_cost,
+			best_final_win_cost_list=T_alns_best_final_win_cost,
+			best_total_win_cost_list=T_alns_best_total_win_cost,
+			best_final_global_max_time_list=T_alns_best_final_global_max_time,
+			best_global_max_time_list=T_alns_best_global_max_time,
+			best_window_total_cost_list=T_alns_best_window_total_cost,
+			best_total_uav_tw_violation_cost_list=T_alns_best_total_uav_tw_violation_cost,
+			best_total_vehicle_cost_list=T_alns_best_total_vehicle_cost,
+			elapsed_time_list=T_alns_elapsed_time,
+			# --- 每代曲线（list/np.array 都可以）---
+			win_cost_curve_list=T_alns_win_cost,
+			uav_route_cost_curve_list=T_alns_uav_route_cost,
+			vehicle_route_cost_curve_list=T_alns_vehicle_route_cost,
+			final_uav_cost_curve_list=T_alns_final_uav_cost,
+			final_total_list_curve_list=T_alns_final_total_list,
+			final_win_cost_curve_list=T_alns_final_win_cost,
+			final_total_objective_curve_list=T_alns_final_total_objective,
+			y_cost_curve_list=T_alns_y_cost,
+			y_best_curve_list=T_alns_y_best,
+			work_time_curve_list=T_alns_work_time,
+			final_work_time_curve_list=T_alns_final_work_time,
+			)
+			print(f"T-I-ALNS_finished_{iter}_iterations")
+		elif algorithm == "T_I_ALNS":
+			from fast_alns_solver import solve_with_T_I_alns
+			T_I_alns_initial_state = initial_state.fast_copy()
+			# 使用传统增量式ALNS求解,输出最佳方案结果，并保存到文件中
+			(T_I_alns_best_state, T_I_alns_best_final_state, T_I_alns_best_objective, T_I_alns_best_final_objective, T_I_alns_best_final_uav_cost, 
+			T_I_alns_best_final_win_cost, T_I_alns_best_total_win_cost, T_I_alns_best_final_global_max_time, T_I_alns_best_global_max_time, T_I_alns_best_window_total_cost, 
+			T_I_alns_best_total_uav_tw_violation_cost, T_I_alns_best_total_vehicle_cost, T_I_alns_elapsed_time, T_I_alns_win_cost, T_I_alns_uav_route_cost, T_I_alns_vehicle_route_cost, 
+			T_I_alns_final_uav_cost, T_I_alns_final_total_list, T_I_alns_final_win_cost, T_I_alns_final_total_objective, T_I_alns_y_cost, T_I_alns_y_best, T_I_alns_work_time, 
+			T_I_alns_final_work_time) = solve_with_T_I_alns(
+				T_I_alns_initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
+				N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
+				A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
+				air_node_types, ground_node_types, A_c, xeee,
+				customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+				iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True, seed=seed
+			)
+			record_one_run(T_I_alns_best_state, T_I_alns_best_final_state, T_I_alns_best_objective, T_I_alns_best_final_objective, T_I_alns_best_final_uav_cost, 
+			results_all[algorithm],
+			# --- state（只存不导出）---
+			best_state_list=T_I_alns_best_state,
+			best_final_state_list=T_I_alns_best_final_state,
+			# --- 标量 ---
+			best_objective_list=T_I_alns_best_objective,
+			best_final_objective_list=T_I_alns_best_final_objective,
+			best_final_uav_cost_list=T_I_alns_best_final_uav_cost,
+			best_final_win_cost_list=T_I_alns_best_final_win_cost,
+			best_total_win_cost_list=T_I_alns_best_total_win_cost,
+			best_final_global_max_time_list=T_I_alns_best_final_global_max_time,
+			best_global_max_time_list=T_I_alns_best_global_max_time,
+			best_window_total_cost_list=T_I_alns_best_window_total_cost,
+			best_total_uav_tw_violation_cost_list=T_I_alns_best_total_uav_tw_violation_cost,
+			best_total_vehicle_cost_list=T_I_alns_best_total_vehicle_cost,
+			elapsed_time_list=T_I_alns_elapsed_time,
+			# --- 每代曲线（list/np.array 都可以）---
+			win_cost_curve_list=T_I_alns_win_cost,
+			uav_route_cost_curve_list=T_I_alns_uav_route_cost,
+			vehicle_route_cost_curve_list=T_I_alns_vehicle_route_cost,
+			final_uav_cost_curve_list=T_I_alns_final_uav_cost,
+			final_total_list_curve_list=T_I_alns_final_total_list,
+			final_win_cost_curve_list=T_I_alns_final_win_cost,
+			final_total_objective_curve_list=T_I_alns_final_total_objective,
+			y_cost_curve_list=T_I_alns_y_cost,
+			y_best_curve_list=T_I_alns_y_best,
+			work_time_curve_list=T_I_alns_work_time,
+			final_work_time_curve_list=T_I_alns_final_work_time,
+			)
+			print(f"T-I-ALNS_finished_{iter}_iterations")
+
 	# export_results_to_excel(results_all, str('H_ALNS_'+problemName+'customer_node_num_'+str(len(C))), save_dir=SAVE_DIR_TOTAL)
 	export_results_to_excel(
 	results_all,

@@ -1,0 +1,30 @@
+2026-01-28T23:22:45.076075 [FAIL] RC1_4_1_N160_T6_U6_I500_L10_S6_raw_scale1.0_ratioNA_Z0.05__ALG-H_ALNS__R05__S4056615227
+[Errno 2] No such file or directory: 'VDAC\\map_test\\RC1_4_1.TXT'
+Traceback (most recent call last):
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\batch_runner.py", line 398, in run_one_task
+    _ = missionControl(config=cfg)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\main.py", line 338, in __init__
+    self.readData(numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones, num_points) # 读取节点位置、车辆属性以及卡车旅行时间矩阵
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\main.py", line 435, in readData
+    G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE, self.air_node_num, self.ground_node_num, self.customer_node_num)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\generate_test_problems.py", line 835, in generate_complex_network
+    position_points, start_pos = generate_points(num_points, seed)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\generate_test_problems.py", line 20, in generate_points
+    with open(file_path_R201, 'r') as file:
+FileNotFoundError: [Errno 2] No such file or directory: 'VDAC\\map_test\\RC1_4_1.TXT'
+
+2026-01-29T13:18:18.605726 [FAIL] RC1_4_1_N160_T6_U6_I500_L10_S6_raw_scale1.0_ratioNA_Z0.05__ALG-H_ALNS__R05__S4056615227
+[Errno 2] No such file or directory: 'VDAC\\map_test\\RC1_4_1.TXT'
+Traceback (most recent call last):
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\batch_runner.py", line 398, in run_one_task
+    _ = missionControl(config=cfg)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\main.py", line 338, in __init__
+    self.readData(numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones, num_points) # 读取节点位置、车辆属性以及卡车旅行时间矩阵
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\main.py", line 435, in readData
+    G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE, self.air_node_num, self.ground_node_num, self.customer_node_num)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\generate_test_problems.py", line 835, in generate_complex_network
+    position_points, start_pos = generate_points(num_points, seed)
+  File "D:\Zhangmiaohan_Palace\VDAC_AirCorridor_Research\VDAC\generate_test_problems.py", line 20, in generate_points
+    with open(file_path_R201, 'r') as file:
+FileNotFoundError: [Errno 2] No such file or directory: 'VDAC\\map_test\\RC1_4_1.TXT'
+

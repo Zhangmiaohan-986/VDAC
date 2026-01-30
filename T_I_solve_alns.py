@@ -20,9 +20,6 @@ from task_data import deep_remove_vehicle_task
 from local_search import *
 from rm_node_sort_node import rm_empty_node
 from task_data import *
-import main
-import endurance_calculator
-import distance_functions
 from visualization_best import visualize_plan
 import random
 from typing import List, Dict, Tuple
@@ -32,7 +29,9 @@ from initialize import deep_copy_vehicle_task_data
 from cost_y import calculate_plan_cost
 from create_vehicle_route import DiverseRouteGenerator
 from constraints_satisfied import is_constraints_satisfied
-
+from random import seed
+from fast_alns_solver import FastMfstspState
+# 该策略算法模拟传统ALNS算法，不考虑插入模式。
 class T_I_IncrementalALNS:
     """传统增量式ALNS求解器 - 使用修改记录和回滚机制"""
     
@@ -40,7 +39,7 @@ class T_I_IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60):
+        iter, max_iterations, max_runtime=60, seed=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -76,7 +75,7 @@ class T_I_IncrementalALNS:
         # self.temperature = 500.0
         # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
-        self.rng = rnd.default_rng(42)
+        self.rng = rnd.default_rng(seed)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间
@@ -572,10 +571,10 @@ class T_I_IncrementalALNS:
                     if len(candidates) == 0:
                         print(f'在regret的修复策略中，客户点{customer}没有可行的插入方案，包括传统插入和VTP扩展插入,跳过')
                         continue
-                    # # 删除候选解中eval_cost数值为inf的内容
-                    # import math
-                    # # 过滤掉eval_cost为inf或None的候选解
-                    # candidates = [c for c in candidates if c.get('eval_cost') is not None and not math.isinf(c.get('eval_cost', 0))]
+                    # 删除候选解中eval_cost数值为inf的内容
+                    import math
+                    # 过滤掉eval_cost为inf或None的候选解
+                    candidates = [c for c in candidates if c.get('eval_cost') is not None and not math.isinf(c.get('eval_cost', 0))]
                     
                     candidates_sorted = sorted(candidates, key=lambda x: x['eval_cost'])
                     best_cost = candidates_sorted[0]['total_cost']
@@ -4789,8 +4788,8 @@ class T_I_IncrementalALNS:
             repair_op  = getattr(self, r_name)
 
             # 你原算子有force_vtp_mode：baseline里用概率随机开关（可设0/1固定）
-            force_vtp_mode = (self.rng.random() < getattr(self, "vtp_mode_prob", 0.0))
-            # force_vtp_mode = False
+            # force_vtp_mode = (self.rng.random() < getattr(self, "vtp_mode_prob", 0.0))
+            force_vtp_mode = False
 
             print(f"\n--- iter {iteration} ---")
             print(f"  > ops: {d_name} + {r_name} | force_vtp_mode={force_vtp_mode}")
@@ -4957,7 +4956,7 @@ class T_I_IncrementalALNS:
 
         # 保存运行数据
         save_alns_results(
-            instance_name=self.problemName + str('T_alns') + "_" + str(self.iter),  # 换成你实际的算例名
+            instance_name=self.problemName + str('T_I_alns') + "_" + str(self.iter),  # 换成你实际的算例名
             y_best=y_best,
             y_cost=y_cost,
             win_cost=win_cost,
@@ -4992,7 +4991,7 @@ class T_I_IncrementalALNS:
             final_work_time=final_work_time,                   # 每一代最终方案完成时间 list
             best_final_state=best_final_state,
         )
-        print(f"T_ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
+        print(f"T_I_ALNS求解完成，最终成本: {best_objective}, 迭代次数: {iteration}, 运行时间: {elapsed_time:.2f}秒")
         return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
 
     def _roulette_wheel_select(self, weights):
@@ -5075,9 +5074,9 @@ class T_I_IncrementalALNS:
             return new_state
 
         # new_state.vehicle_routes = new_state.rm_empty_vehicle_route  # 更新路径
-        # mode = 'vtp' if force_vtp_mode else 'customer'
-        mode = 'customer'
-        print(f"  > [破坏模式]: 随机破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
+        mode = 'vtp' if force_vtp_mode else 'customer'
+        # mode = 'customer'
+        # print(f"  > [破坏模式]: 随机破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
         vehicle_task_data = new_state.vehicle_task_data
         if mode == 'vtp':
             # 收集所有活跃的VTP节点
@@ -5998,8 +5997,8 @@ class T_I_IncrementalALNS:
             return new_state
 
         # new_state.vehicle_routes = new_state.rm_empty_vehicle_route  # 更新路径
-        # mode = 'vtp' if force_vtp_mode else 'customer'
-        mode = 'customer'
+        mode = 'vtp' if force_vtp_mode else 'customer'
+        # mode = 'customer'
         print(f"  > [破坏模式]: 最差破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
         vehicle_task_data = new_state.vehicle_task_data
         if mode == 'vtp':

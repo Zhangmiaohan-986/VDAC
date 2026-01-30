@@ -135,7 +135,7 @@ def build_experiments():
     uav_list = [6,6,8,8,8,12,12,24]
     iter_list = [500,500,500,500,500,500,500,500]
     seeds = [6,6,6,6,6,6,6,6]
-    loop_iter_list = [10,10,10,10,10,10,10,3]
+    loop_iter_list = [10,10,10,10,10,10,10,10]
     target_ranges = [None,None,None,None,None,None,None,None]
     coord_scales = [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]
     Z_coords = [0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05]
@@ -409,17 +409,25 @@ def run_one_task(base_config: dict, rep_id: int, alg: str, output_root: str):
             f.write(traceback.format_exc() + "\n")
         return {"status": "fail", "run_tag": run_tag, "alg": alg, "rep": rep_id, "seed": seed, "sec": dur, "err": str(e)}
 
-def run_batch_experiments_parallel(n_jobs: int = 8, force_repeats: int | None = None, algorithms=None):
+from typing import Optional  # 导入 Optional
+
+def run_batch_experiments_parallel(n_jobs: int = 8, force_repeats: Optional[int] = None, algorithms=None):
     """
     并行批跑：
     - n_jobs: 并行进程数（通道数）
     - force_repeats: 论文固定跑5次就传5（覆盖config里的loop_iterations）
     - algorithms: 多算法对比列表，例如 ["H_ALNS","T_ALNS"]
     """
+    # 在当前目录下创建一个纯英文的临时文件夹
+    local_tmp_dir = os.path.abspath("joblib_temp_cache")
+    os.makedirs(local_tmp_dir, exist_ok=True)
+    # 告诉 joblib 使用这个文件夹，而不是 C:\Users\中文名\...
+    os.environ['JOBLIB_TEMP_FOLDER'] = local_tmp_dir
+    
     # 统一输出根目录（建议用绝对路径）
     output_root = os.path.abspath(r"VDAC\saved_solutions")
     os.makedirs(output_root, exist_ok=True)
-    os.makedirs(os.path.join(output_root, "data_total"), exist_ok=True)
+    os.makedirs(os.path.join(output_root, "algorithm_data_total"), exist_ok=True)
 
     experiments = build_experiments()
     total_exp = len(experiments)

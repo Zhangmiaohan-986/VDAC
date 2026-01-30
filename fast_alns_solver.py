@@ -3642,7 +3642,7 @@ class IncrementalALNS:
                 if destroy_node:
                     print(f"  > [VTP中心收尾]: 仍有 {len(destroy_node)} 个客户待修复，转交标准贪婪或者后悔之策略插入修复...")
                     # 通过后悔值或贪婪策略插入剩余解方案,随机选择1或者2,1为贪婪，2为后悔值方案
-                    random_choice = random.randint(1, 2)
+                    random_choice = self.rng.integers(1, 3)
                     if random_choice == 1:
                         repaired_state, insert_plan = self.repair_regret_insertion(repaired_state,strategic_bonus=0, num_destroyed=len(destroy_node), force_vtp_mode=True)
                     else:
@@ -4888,10 +4888,16 @@ class IncrementalALNS:
         # 2. 随机采样序列
         sample_size = min(max_samples - 1, len(candidate_nodes))
         for _ in range(sample_size):
+            # if len(candidate_nodes) >= k_steps:
+            #     sequence = random.sample(candidate_nodes, k_steps)
+            # else:
+            #     sequence = candidate_nodes
+            # candidate_sequences.append(sequence)
             if len(candidate_nodes) >= k_steps:
-                sequence = random.sample(candidate_nodes, k_steps)
+                idx = self.rng.choice(len(candidate_nodes), size=k_steps, replace=False)
+                sequence = [candidate_nodes[i] for i in idx]
             else:
-                sequence = candidate_nodes
+                sequence = list(candidate_nodes)
             candidate_sequences.append(sequence)
         
         # 评估每个候选序列
@@ -5411,9 +5417,13 @@ class IncrementalALNS:
                 node_list = near_node_list
                 # 采样sample_size个不同组合
                 candidates = set()
+                # while len(candidates) < sample_size:
+                #     l_n = random.choice(node_list)
+                #     r_n = random.choice(node_list)
+                n = len(node_list)
                 while len(candidates) < sample_size:
-                    l_n = random.choice(node_list)
-                    r_n = random.choice(node_list)
+                    l_n = node_list[int(self.rng.integers(0, n))]
+                    r_n = node_list[int(self.rng.integers(0, n))]
                     if l_n != r_n:
                         candidates.add((l_n, r_n))
                 for l_n, r_n in candidates:
@@ -5427,9 +5437,16 @@ class IncrementalALNS:
                 launch_list = near_node_list[launch_vehicle_id]
                 recovery_list = near_node_list[recovery_vehicle_id]
                 candidates = set()
+                # while len(candidates) < sample_size:
+                #     l_n = random.choice(launch_list)
+                #     r_n = random.choice(recovery_list)
+                #     if l_n != r_n:
+                #         candidates.add((l_n, r_n))
+                nl = len(launch_list)
+                nr = len(recovery_list)
                 while len(candidates) < sample_size:
-                    l_n = random.choice(launch_list)
-                    r_n = random.choice(recovery_list)
+                    l_n = launch_list[int(self.rng.integers(0, nl))]
+                    r_n = recovery_list[int(self.rng.integers(0, nr))]
                     if l_n != r_n:
                         candidates.add((l_n, r_n))
                 for l_n, r_n in candidates:
@@ -8435,7 +8452,7 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
 from T_solve_alns import T_IncrementalALNS
 def solve_with_T_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, use_incremental=True):
+        iter, max_iterations, max_runtime=60, use_incremental=True, seed=None):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8454,13 +8471,45 @@ def solve_with_T_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_t
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime)
+        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime, seed=seed)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)
     
     # 使用ALNS求解
     best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time = T_alns_solver.solve(initial_solution)
+    
+    return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
+
+from T_I_solve_alns import T_I_IncrementalALNS
+def solve_with_T_I_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter, max_iterations, max_runtime=60, use_incremental=True, seed=None):
+    """
+    使用高效ALNS求解mFSTSP问题
+    
+    Args:
+        initial_solution: 初始解
+        max_iterations: 最大迭代次数
+        max_runtime: 最大运行时间（秒）
+        use_incremental: 是否使用增量式算法
+        
+    Returns:
+        tuple: (best_solution, best_objective, statistics)
+    """
+    if use_incremental:
+        # 使用增量式ALNS
+        T_I_alns_solver = T_I_IncrementalALNS(node, DEPOT_nodeID, V, T, vehicle, uav_travel, 
+        veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
+        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime, seed=seed)
+    # else:
+    #     # 使用快速ALNS
+    #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)
+    
+    # 使用ALNS求解
+    best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time = T_I_alns_solver.solve(initial_solution)
     
     return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
 
@@ -8492,8 +8541,16 @@ def weighted_choice_sub(candidates, k_limit):
     total_w = sum(weights)
     probs = [w / total_w for w in weights]
     
-    # 按概率随机选择一个索引
-    r = random.random()
+    # # 按概率随机选择一个索引
+    # r = random.random()
+    # cumulative_p = 0.0
+    # selected_index = 0
+    # for i, p in enumerate(probs):
+    #     cumulative_p += p
+    #     if r <= cumulative_p:
+    #         selected_index = i
+    #         break
+    r = float(self.rng.random())
     cumulative_p = 0.0
     selected_index = 0
     for i, p in enumerate(probs):
@@ -8501,7 +8558,7 @@ def weighted_choice_sub(candidates, k_limit):
         if r <= cumulative_p:
             selected_index = i
             break
-    
+
     # 4. 构建尝试队列
     # 队列顺序：[被选中的那个] + [RCS里剩下的(按原序)] + [备选池]
     # 这样如果"幸运儿"失败了，我们立刻回退到最稳妥的贪婪顺序

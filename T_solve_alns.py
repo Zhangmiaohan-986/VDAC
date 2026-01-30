@@ -20,9 +20,6 @@ from task_data import deep_remove_vehicle_task
 from local_search import *
 from rm_node_sort_node import rm_empty_node
 from task_data import *
-import main
-import endurance_calculator
-import distance_functions
 from visualization_best import visualize_plan
 import random
 from typing import List, Dict, Tuple
@@ -32,7 +29,9 @@ from initialize import deep_copy_vehicle_task_data
 from cost_y import calculate_plan_cost
 from create_vehicle_route import DiverseRouteGenerator
 from constraints_satisfied import is_constraints_satisfied
-
+from random import seed
+from fast_alns_solver import FastMfstspState
+# 该策略算法模拟传统ALNS算法，不考虑插入模式。
 class T_IncrementalALNS:
     """传统增量式ALNS求解器 - 使用修改记录和回滚机制"""
     
@@ -40,7 +39,7 @@ class T_IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60):
+        iter, max_iterations, max_runtime=60, seed=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -76,7 +75,7 @@ class T_IncrementalALNS:
         # self.temperature = 500.0
         # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
-        self.rng = rnd.default_rng(42)
+        self.rng = rnd.default_rng(seed)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间
@@ -4750,6 +4749,21 @@ class T_IncrementalALNS:
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
         cooling_rate = 0.985  # 缓慢降温以进行更充分的探索
+        import math
+        # ========== SA参数（传统接受准则）==========
+        cooling_rate = 0.985            # 你原来就有
+        min_temperature = 1e-6          # 防止除0
+
+        # 用目标值尺度初始化温度（比直接用max_iterations更稳）
+        if not hasattr(self, "initial_temperature") or self.initial_temperature is None or self.initial_temperature <= 0:
+            self.initial_temperature = max(1.0, 0.05 * float(best_objective))  # 5% 初始尺度
+
+        self.temperature = float(self.initial_temperature)
+
+        # 传统ALNS里：接受差解也要给一点分，否则权重学不到“探索”的贡献
+        if not hasattr(self, "sigma3") or self.sigma3 is None:
+            self.sigma3 = 1.0
+
         print(f"开始ALNS求解，初始成本: {best_objective:.2f}")
         # self.max_iterations = 100
             # ========== 2) 传统ALNS：轮盘赌 + 分段学习 ==========
@@ -4862,22 +4876,51 @@ class T_IncrementalALNS:
             final_vehicle_route_cost.append(final_total_objective_value - finial_window_total_cost)  # 记录考虑空中避障场景下的车辆路径规划成本
             final_new_objective = final_total_objective_value
 
-            # 3.5 贪婪接受（核心改动）
+            # # 3.5 贪婪接受（核心改动）
+            # accepted = False
+            # score = 0.0
+
+            # if new_objective < best_objective:
+            #     accepted = True
+            #     score = self.sigma1
+            #     print(f"  > 接受：新全局最优 score={score}")
+            # elif new_objective < current_objective:
+            #     accepted = True
+            #     score = self.sigma2
+            #     print(f"  > 接受：优于当前解 score={score}")
+            # else:
+            #     accepted = False
+            #     score = 0.0
+            #     print("  > 拒绝：未改进（贪婪）")
+            # 3.5 传统SA接受准则
             accepted = False
             score = 0.0
 
-            if new_objective < best_objective:
+            delta = float(new_objective) - float(current_objective)
+
+            if delta <= 0:
+                # 更优：必接受
                 accepted = True
-                score = self.sigma1
-                print(f"  > 接受：新全局最优 score={score}")
-            elif new_objective < current_objective:
-                accepted = True
-                score = self.sigma2
-                print(f"  > 接受：优于当前解 score={score}")
+                if new_objective < best_objective:
+                    score = self.sigma1
+                    print(f"  > SA接受：新全局最优 Δ={delta:.2f}, T={self.temperature:.6f}, score={score}")
+                else:
+                    score = self.sigma2
+                    print(f"  > SA接受：优于当前解 Δ={delta:.2f}, T={self.temperature:.6f}, score={score}")
             else:
-                accepted = False
-                score = 0.0
-                print("  > 拒绝：未改进（贪婪）")
+                # 更差：按概率接受
+                T = max(min_temperature, float(self.temperature))
+                prob = math.exp(-delta / T)
+
+                rnd_u = float(self.rng.random())
+                if rnd_u < prob:
+                    accepted = True
+                    score = self.sigma3
+                    print(f"  > SA接受差解 Δ={delta:.2f}, T={T:.6f}, p={prob:.6f}, u={rnd_u:.6f}, score={score}")
+                else:
+                    accepted = False
+                    score = 0.0
+                    print(f"  > SA拒绝差解 Δ={delta:.2f}, T={T:.6f}, p={prob:.6f}, u={rnd_u:.6f}")
 
             # 分段统计：使用次数与得分
             destroy_use_cnt[d_name] += 1
@@ -4911,6 +4954,8 @@ class T_IncrementalALNS:
                 best_final_vehicle_route_cost = final_total_objective_value - finial_window_total_cost
 
             y_cost.append(current_objective)
+            # 传统SA：降温
+            self.temperature = max(min_temperature, self.temperature * cooling_rate)
 
             # 3.6 分段更新权重（传统ALNS关键）
             if (iteration + 1) % self.segment_length == 0:
@@ -5077,7 +5122,7 @@ class T_IncrementalALNS:
         # new_state.vehicle_routes = new_state.rm_empty_vehicle_route  # 更新路径
         # mode = 'vtp' if force_vtp_mode else 'customer'
         mode = 'customer'
-        print(f"  > [破坏模式]: 随机破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
+        # print(f"  > [破坏模式]: 随机破坏 ({'VTP模式' if mode == 'vtp' else '客户模式'})")
         vehicle_task_data = new_state.vehicle_task_data
         if mode == 'vtp':
             # 收集所有活跃的VTP节点
