@@ -10,7 +10,7 @@ from utils_shared import *
 from parseCSV import *
 from parseCSVstring import *
 
-from gurobipy import *
+# from gurobipy import *
 import os
 import os.path
 from subprocess import call		# allow calling an external command in python.  See http://stackoverflow.com/questions/89228/calling-an-external-command-in-python
@@ -238,24 +238,7 @@ class missionControl():
 		timestamp = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d %H:%M:%S')
 		# 获取基准路径（建议在类外部定义）
 		self.base_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件绝对路径的目录
-		# if (len(sys.argv) == 6):  # 给出各种参数，包括无人机数量
-		# 	problemName 		= sys.argv[1]
-		# 	vehicleFileID		= int(sys.argv[2])
-		# 	UAVSpeedType 		= int(sys.argv[3])
-		# 	# numUAVs				= int(sys.argv[4])
-		# 	# numTrucks			= int(sys.argv[5])
-		# 	# 使用 os.path.join 构建跨平台兼容路径
-		# 	# self.locationsFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_locations.csv')
-		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_{vehicleFileID}.csv')
-		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
-		# 	# self.distmatrixFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_truck_travel_data_PG.csv')
-		# 	# self.solutionSummaryFile = os.path.join(
-		# 	# 	self.base_dir, 'Problems', problemName, 
-		# 	# 	f'tbl_solutions_{vehicleFileID}_{numUAVs}_{UAVSpeedTypeString[UAVSpeedType]}.csv'
-		# 	# )
-		# else:
-		# 	print(f'ERROR: Expected 5 parameters, got {len(sys.argv)-1}.')
-		# 	quit()	
+		
 		# 如果传入了 config 字典，使用 config 中的参数；否则使用默认值
 		if config:
 			self.problemName = config.get('problem_name', 'case_001') # 或者从 config 读
@@ -267,10 +250,17 @@ class missionControl():
 			late_arrival_cost = config.get('late_arrival_cost', [20, 0.333]) # 动态获取迟到惩罚成本
 			max_Drones = config.get('max_drones', 10) # 动态获取无人机最大数量
 			num_points = config.get('num_points', 100) # 动态获取节点数量
-			self.loop_iterations = config.get('loop_iterations', 300) # 动态获取循环迭代次数
+			self.loop_iterations = config.get('loop_iterations', 1) # 动态获取循环迭代次数
 			self.max_iterations = config.get('iterations', 500) # 动态获取迭代次数
 			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
 			self.air_node_num, self.ground_node_num, self.customer_node_num = config.get('split_ratio', (1/3, 1/3, 1/3)) # 动态获取空中air，地面节点以及客户节点数量
+			self.algo_seed = config.get("seed", 6)
+			self.Z_coord = config.get("Z_coord", 0.05)
+			self.uav_distance = config.get("uav_distance", 15)
+			self.run_tag = config.get("run_tag", None)
+			self.destroy_op = config.get("destroy_op", None)
+			self.repair_op = config.get("repair_op", None)
+			self.op_tag = config.get("op_tag", None)
 			self.vehicleFileID = 1 # 假设默认
 			UAVSpeedType = 1
 		else:
@@ -287,15 +277,20 @@ class missionControl():
 			self.max_iterations = 50
 			self.instance_name = "case_001" # 默认名称
 			self.vehicleFileID = 1
+			self.seed = 6
+			self.Z_coord = 0.05
+			self.uav_distance = 15
+			self.run_tag = None
 			UAVSpeedType = 1
 
 		self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
 		
 		# 参数输入设置
 		# num_points = 100
-		seed = 6
-		Z_coord = 0.05  # 空中走廊高度
-		uav_distance = 15  # 无人机最远飞行距离
+		seed = self.seed
+		Z_coord = self.Z_coord
+		uav_distance = self.uav_distance
+
 		# numUAVs = 6  # 无人机数量
 		# UAVSpeedType = 1
 		# numTrucks = 3  # 卡车数量，在此处修改卡车数量和无人机
@@ -356,7 +351,9 @@ class missionControl():
 		print('Calling a Heuristic to solve VDCD-AC...')
 		# 调用启发式算法解决mFSTSP-VDS问题
 		# [objVal, assignments, packages, waitingTruck, waitingUAV] = solve_mfstsp_heuristic(self.node, self.vehicle, self.travel, problemName, vehicleFileID, numUAVs, UAVSpeedType)
-		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations, self.loop_iterations)
+		solve_mfstsp_heuristic(self.node, self.vehicle, self.air_matrix, self.ground_matrix, self.air_node_types, self.ground_node_types, self.num_points, numUAVs, numTrucks, self.uav_travel, self.veh_travel, self.veh_distance, self.G_air, self.G_ground, self.customer_time_windows_h, self.early_arrival_cost, self.late_arrival_cost, self.problemName, self.max_iterations, self.loop_iterations
+						 ,algo_seed=self.algo_seed, run_tag=self.run_tag
+						 , destroy_op=self.destroy_op,repair_op=self.repair_op, op_tag=self.op_tag)
 		print('所有任务完成')
 
 	# 读取车辆数据
@@ -402,7 +399,7 @@ class missionControl():
 
 		# a)  tbl_locations.csv
 		# 获得空中地面图，空地距离矩阵，位置和节点类型，及所有数据集合。
-		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, Z_COORD, UAV_DISTANCE, self.air_node_num, self.ground_node_num, self.customer_node_num)
+		G_air, G_ground, air_adj_matrix, air_positions, ground_adj_matrix, ground_positions, all_data, air_node_types, ground_node_types, customer_time_windows_h = generate_complex_network(num_points, SEED, self.Z_coord, self.uav_distance, self.air_node_num, self.ground_node_num, self.customer_node_num)
 		# 读取节点位置，类型数据
 		# 使用字典构造函数
 		air_ground_node_types =  merge_and_renumber_dicts(air_node_types, ground_node_types)

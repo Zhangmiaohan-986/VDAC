@@ -86,7 +86,7 @@ class make_packages:
 
 
 # def solve_mfstsp_heuristic(node, vehicle, travel, problemName, vehicleFileID, numUAVs, UAVSpeedType):
-def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations, loop_iterations):
+def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations, loop_iterations, algo_seed, run_tag=None, destroy_op=None, repair_op=None):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -187,11 +187,18 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	numTrucks = len(T)
 	numUAVs = len(V)
 	numCustomers = len(C)
-	solveAlns = "H-alns"
-	# 判断当前阶段任务是否有文件夹了，没有就建立
-	ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
-	SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
+	solveAlns = "H-alns"  # 此处改为算子情况
+	# 判断当前阶段任务是否有文件夹了，没有就建立D:\NKU\VDAC_PAP\VDAC\saved_solutions
+	# ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
+	# SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
+	# SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
+	ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"  # 按你的新路径要求
+
+	op_suffix = f"__D-{destroy_op}__R-{repair_op}" if destroy_op and repair_op else ""
+	SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总{op_suffix}"
 	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
+
 	# 1) 确保 ROOT_BASE_DIR 存在
 	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
 
@@ -263,7 +270,7 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
 			air_node_types, ground_node_types, A_c, xeee,
 			customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-			iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True
+			iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True, algo_seed=algo_seed, destroy_op=destroy_op, repair_op=repair_op
 		)
 		# T_alns_initial_state = initial_state.fast_copy()
 		# 使用传统ALNS求解,输出最佳方案结果，并保存到文件中

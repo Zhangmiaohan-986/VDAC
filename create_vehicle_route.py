@@ -92,7 +92,8 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     input_filename = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
     # save_dir = r"VDAC\saved_solutions"
     # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
-    save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    save_dir = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
     os.makedirs(save_dir, exist_ok=True)
     saved_file_path = find_saved_solution_file(save_dir, input_filename)
 

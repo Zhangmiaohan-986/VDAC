@@ -31,10 +31,10 @@ from visualization_best import visualize_plan
 import random
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
-from alns import ALNS
-from alns.accept import HillClimbing, SimulatedAnnealing
-from alns.select import RouletteWheel, AlphaUCB
-from alns.stop import MaxRuntime, MaxIterations
+# from alns import ALNS
+# from alns.accept import HillClimbing, SimulatedAnnealing
+# from alns.select import RouletteWheel, AlphaUCB
+# from alns.stop import MaxRuntime, MaxIterations
 from destroy_repair_operator import *
 from initialize import deep_copy_vehicle_task_data
 from cost_y import calculate_plan_cost
@@ -488,211 +488,6 @@ class FastMfstspState:
         # 其它 v_id 的内层字典直接共享原始的（不动）
         return new_data
 
-    # def temp_fast_copy(self): 该方案及以下被验证为可行，但是没有被使用
-    #     """
-    #     针对 FastMfstspState 的精简复制：
-    #     只深拷贝在修复/预测过程中会被修改的字段：
-    #     - vehicle_routes
-    #     - vehicle_task_data
-    #     - customer_plan
-    #     - uav_assignments
-    #     - uav_cost（强烈建议一并复制）
-    #     其他大部分参数/图结构/配置都共享引用，加速很多。
-    #     """
-    #     from collections import defaultdict
-
-    #     cls = self.__class__
-    #     # 1. 绕过 __init__ 创建新实例
-    #     new_state = cls.__new__(cls)
-
-    #     # 2. 先做一份 __dict__ 浅拷贝，静态/只读字段都直接复用
-    #     new_state.__dict__ = self.__dict__.copy()
-
-    #     # ---------- 只对“会被改动”的字段做真正复制 ----------
-
-    #     # 1) vehicle_routes: List[List[node]]
-    #     new_state.vehicle_routes = [route[:] for route in self.vehicle_routes]
-
-    #     # 2) uav_assignments: Dict[drone_id, List[scheme]]
-    #     new_state.uav_assignments = {
-    #         k: v[:] for k, v in self.uav_assignments.items()
-    #     }
-
-    #     # 3) customer_plan: 统一转成普通 dict，并复制 list 型 value
-    #     if isinstance(self.customer_plan, defaultdict):
-    #         base_plan = dict(self.customer_plan)   # 去掉 default_factory，防止默默插入新key
-    #     else:
-    #         base_plan = self.customer_plan
-
-    #     new_state.customer_plan = {
-    #         cust: (plan[:] if isinstance(plan, list) else plan)
-    #         for cust, plan in base_plan.items()
-    #     }
-
-    #     # 4) vehicle_task_data: 用你写好的嵌套复制函数
-    #     #    这里还是全量复制每辆车的 task_data，如果之后要更极限，可以再加“只复制相关车辆”的参数
-    #     new_state.vehicle_task_data = self._fast_copy_nested_task_data(
-    #         self.vehicle_task_data
-    #     )
-
-    #     # 5) uav_cost: 这个在模拟里会改，必须有自己的 dict
-    #     if isinstance(self.uav_cost, dict):
-    #         new_state.uav_cost = self.uav_cost.copy()
-    #     else:
-    #         new_state.uav_cost = self.uav_cost
-
-    #     # （可选）6) vehicle 如果你在运行中会改，可以复制一份；否则直接共享即可
-    #     # new_state.vehicle = self.vehicle.copy() if isinstance(self.vehicle, dict) else self.vehicle
-
-    #     # 7) 修改历史清空
-    #     new_state._modification_history = []
-
-    #     return new_state
-
-    # def _fast_copy_nested_task_data(self, original_data):
-    #     """
-    #     极速复制嵌套的 defaultdict 结构，并调用 vehicle_task.fast_copy
-    #     结构: defaultdict(dict, {vehicle_id: defaultdict(lambda:..., {task_id: vehicle_task})})
-    #     """
-    #     # 1. 复制外层 defaultdict (保留 default_factory)
-    #     new_data = original_data.copy()
-        
-    #     # 2. 遍历第一层 (Vehicle ID)
-    #     for v_id, inner_dict in original_data.items():
-    #         # 3. 复制内层 defaultdict (保留 default_factory)
-    #         new_inner = inner_dict.copy()
-            
-    #         # 4. 遍历第二层 (Node ID / Task ID)，手动调用 fast_copy
-    #         for t_id, task_obj in inner_dict.items():
-    #             # 直接调用我们刚才改写的高速 fast_copy
-    #             new_inner[t_id] = task_obj.fast_copy()
-            
-    #         # 将处理好的内层字典放回
-    #         new_data[v_id] = new_inner
-            
-    #     return new_data
-
-    # def fast_copy(self):
-    #     """快速浅拷贝 - 只复制引用，不复制数据"""
-    #     # vehicle_task_data 用 fast_copy
-    #     vehicle_task_data_copy = self.vehicle_task_data.__class__()  # 保持原类型
-    #     for k, v in self.vehicle_task_data.items():
-    #         vehicle_task_data_copy[k] = v.fast_copy() if hasattr(v, 'fast_copy') else copy.deepcopy(v)
-    #     # global_reservation_table 建议也做深拷贝或类似处理
-    #     # global_reservation_table_copy = copy.deepcopy(self.global_reservation_table)
-    #     global_reservation_table_copy = copy.copy(self.global_reservation_table)
-        
-    #     # 创建新的状态对象
-    #     # 关键修复：确保customer_plan始终是普通字典，不是defaultdict
-    #     if isinstance(self.customer_plan, defaultdict):
-    #         customer_plan_copy = dict(self.customer_plan)
-    #     else:
-    #         customer_plan_copy = self.customer_plan.copy()
-            
-    #     new_state = FastMfstspState(
-    #         vehicle_routes=[route.copy() for route in self.vehicle_routes],
-    #         uav_assignments={k: v.copy() for k, v in self.uav_assignments.items()},
-    #         customer_plan=customer_plan_copy,
-    #         vehicle_task_data=vehicle_task_data_copy,
-    #         global_reservation_table=global_reservation_table_copy,
-    #         total_cost=self._total_cost,
-    #         init_uav_plan=self.uav_plan,
-    #         uav_cost=(self.uav_cost.copy() if isinstance(self.uav_cost, dict) else None),
-    #         init_vehicle_plan_time=self.vehicle_plan_time,
-    #         node=self.node,
-    #         DEPOT_nodeID=self.DEPOT_nodeID,
-    #         V=self.V,
-    #         T=self.T,
-    #         vehicle=self.vehicle,
-    #         uav_travel=self.uav_travel,
-    #         veh_distance=self.veh_distance,
-    #         veh_travel=self.veh_travel,
-    #         N=self.N,
-    #         N_zero=self.N_zero,
-    #         N_plus=self.N_plus,
-    #         A_total=self.A_total,
-    #         A_cvtp=self.A_cvtp,
-    #         A_vtp=self.A_vtp,
-    #         A_aerial_relay_node=self.A_aerial_relay_node,
-    #         G_air=self.G_air,
-    #         G_ground=self.G_ground,
-    #         air_matrix=self.air_matrix,
-    #         ground_matrix=self.ground_matrix,
-    #         air_node_types=self.air_node_types,
-    #         ground_node_types=self.ground_node_types,
-    #         A_c=self.A_c,
-    #         xeee=self.xeee
-    #     )
-        
-    #     # 复制可能存在的额外属性
-    #     if hasattr(self, 'destroyed_node_cost'):
-    #         new_state.destroyed_node_cost = self.destroyed_node_cost
-    #     else:
-    #         new_state.destroyed_node_cost = None
-            
-    #     if hasattr(self, 'final_uav_plan'):
-    #         new_state.final_uav_plan = self.final_uav_plan
-    #     else:
-    #         new_state.final_uav_plan = None
-            
-    #     if hasattr(self, 'final_uav_cost'):
-    #         new_state.final_uav_cost = self.final_uav_cost
-    #     else:
-    #         new_state.final_uav_cost = None
-            
-    #     if hasattr(self, 'final_vehicle_plan_time'):
-    #         new_state.final_vehicle_plan_time = self.final_vehicle_plan_time
-    #     else:
-    #         new_state.final_vehicle_plan_time = None
-            
-    #     if hasattr(self, 'final_vehicle_task_data'):
-    #         new_state.final_vehicle_task_data = self.final_vehicle_task_data
-    #     else:
-    #         new_state.final_vehicle_task_data = None
-            
-    #     if hasattr(self, 'final_global_reservation_table'):
-    #         new_state.final_global_reservation_table = self.final_global_reservation_table
-    #     else:
-    #         new_state.final_global_reservation_table = None
-            
-    #     if hasattr(self, 'destroyed_customers_info'):
-    #         new_state.destroyed_customers_info = self.destroyed_customers_info.copy() if self.destroyed_customers_info else {}
-    #     else:
-    #         new_state.destroyed_customers_info = {}
-            
-    #     if hasattr(self, 'rm_empty_vehicle_route'):
-    #         new_state.rm_empty_vehicle_route = [route[:] for route in self.rm_empty_vehicle_route] if self.rm_empty_vehicle_route else []
-    #     else:
-    #         new_state.rm_empty_vehicle_route = []
-            
-    #     if hasattr(self, 'empty_nodes_by_vehicle'):
-    #         new_state.empty_nodes_by_vehicle = self.empty_nodes_by_vehicle.copy() if self.empty_nodes_by_vehicle else {}
-    #     else:
-    #         new_state.empty_nodes_by_vehicle = {}
-            
-    #     if hasattr(self, 'rm_empty_vehicle_arrive_time'):
-    #         new_state.rm_empty_vehicle_arrive_time = self.rm_empty_vehicle_arrive_time.copy() if self.rm_empty_vehicle_arrive_time else {}
-    #     else:
-    #         new_state.rm_empty_vehicle_arrive_time = {}
-            
-    #     if hasattr(self, 'rm_empty_node_cost'):
-    #         new_state.rm_empty_node_cost = self.rm_empty_node_cost
-    #     else:
-    #         new_state.rm_empty_node_cost = None
-            
-    #     if hasattr(self, 'final_total_cost'):
-    #         new_state.final_total_cost = self.final_total_cost
-    #     else:
-    #         new_state.final_total_cost = None
-            
-    #     # 修复：添加缺失的destroyed_vts_info属性复制
-    #     if hasattr(self, 'destroyed_vts_info'):
-    #         new_state.destroyed_vts_info = self.destroyed_vts_info.copy() if self.destroyed_vts_info else {}
-    #     else:
-    #         new_state.destroyed_vts_info = {}
-        
-    #     return new_state
-
     def record_modification(self, operation, data):
         """记录修改操作，用于回滚"""
         self._modification_history.append((operation, data))
@@ -721,7 +516,8 @@ class IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, summary_dir=None, max_runtime=60):
+        iter, max_iterations, summary_dir=None, max_runtime=60, algo_seed=None,
+        destroy_op=None, repair_op=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -758,7 +554,8 @@ class IncrementalALNS:
         # self.temperature = 500.0
         # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
-        self.rng = rnd.default_rng(42)
+        # self.rng = rnd.default_rng(42)
+        self.rng = rnd.default_rng(algo_seed)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间
@@ -771,7 +568,7 @@ class IncrementalALNS:
         self.vtp_destroy_quantity = {'random': (1, 2), 'worst': 1, 'shaw': 2}
         self.cluster_vtp_dict, self.map_cluster_vtp_dict = self.cluster_vtp_for_customers(k=self.dis_k)
         # 定义算子池，方便后续引用
-        self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal, self.destroy_comprehensive_removal,self.destroy_shaw_rebalance_removal]
+        # self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal, self.destroy_comprehensive_removal,self.destroy_shaw_rebalance_removal]
         # self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal]
         # self.destroy_operators = [self.destroy_worst_removal]
         # self.destroy_operators = [self.destroy_shaw_rebalance_removal]
@@ -780,8 +577,17 @@ class IncrementalALNS:
         # self.destroy_operators = [self.destroy_random_removal]
         # self.repair_operators = [self.repair_regret_insertion]
         # self.repair_operators = [self.noise_regret_insertion]
-        self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion, self.noise_regret_insertion, self.repair_kNN_regret]
+        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion, self.noise_regret_insertion, self.repair_kNN_regret]
         # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_kNN_regret]
+        # 如果外部指定算子组合，则只保留该算子
+        if destroy_op:
+            name_map = {op.__name__: op for op in self.destroy_operators}
+            self.destroy_operators = [name_map[n] for n in destroy_op if n in name_map]
+
+        if repair_op:
+            name_map = {op.__name__: op for op in self.repair_operators}
+            self.repair_operators = [name_map[n] for n in repair_op if n in name_map]
+
         self.params = {
             'k_neighbors': 3,  # 1. 协同邻居数
             'W_base_synergy': 560.0,  # 2. 协同权重 (基准值)
@@ -5734,22 +5540,6 @@ class IncrementalALNS:
             if new_objective < current_objective or (score == self.reward_scores['accepted']):
                 accepted = True
 
-            # print(f"  > 成本变化: {final_current_objective:.2f} -> {final_new_objective:.2f}")
-            # # 2.3.1 根据KPI标准为本次行动打分
-            # if final_new_objective < final_best_objective:
-            #     score = self.reward_scores['new_best']
-            #     print(f"  > 结果: 发现新的全局最优解! 奖励 {score} 分。")
-            # elif final_new_objective < final_current_objective:
-            #     score = self.reward_scores['better_than_current']
-            #     print(f"  > 结果: 找到更优解。奖励 {score} 分。")
-            # elif self._simulated_annealing_accept(final_current_objective, final_new_objective, self.temperature):
-            #     score = self.reward_scores['accepted']
-            #     print(f"  > 结果: 接受一个较差解（探索成功）。奖励 {score} 分。")
-
-            # # 2.3.2 根据模拟退火决定是否接受新解
-            # if final_new_objective < final_current_objective or (score == self.reward_scores['accepted']):
-            #     accepted = True
-            
             # =================================================================
             # 步骤 2.4: 学习与进化 - 更新两层权重
             # =================================================================
@@ -5848,31 +5638,6 @@ class IncrementalALNS:
         best_vehicle_max_times, best_global_max_time = get_max_completion_time(best_arrive_time)
         best_total_uav_tw_violation_cost = sum(best_uav_tw_violation_cost.values())
         best_total_vehicle_cost = best_objective - best_window_total_cost
-
-        # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_arrive_time, best_state.vehicle_task_data, best_state)
-        # 记录最终版本的各项数据，即完成了空中避障任务规划后的方案
-        # 添加更新空中无人机避障后的信息内容
-        # best_state.final_uav_plan, best_state.final_uav_cost, best_state.final_vehicle_plan_time, best_state.final_vehicle_task_data, best_state.final_global_reservation_table = best_state.re_update_time(best_state.vehicle_routes, best_state.vehicle_arrive_time, best_state.vehicle_task_data, best_state)
-        # best_state_final_vehicle_arrive_time = format_rm_empty_vehicle_arrive_time(
-        #     best_state.final_vehicle_plan_time, 
-        #     best_state.vehicle_routes
-        # )
-        # best_arrive_time = best_state.rm_empty_vehicle_arrive_time
-        # best_final_window_total_cost, best_final_uav_tw_violation_cost, best_final_total_cost_dict  = calculate_window_cost(best_state.customer_plan,
-        #         best_state.final_uav_cost,
-        #         best_state_final_vehicle_arrive_time,
-        #         self.vehicle,
-        #         self.customer_time_windows_h,
-        #         self.early_arrival_cost,
-        #         self.late_arrival_cost,
-        #         self.uav_travel,
-        #         self.node)
-        # best_final_uav_cost = sum(best_state.final_uav_cost.values())
-        # best_final_objective = best_state.update_calculate_plan_cost(best_final_total_cost_dict, best_state.vehicle_routes)
-        # best_final_win_cost = sum(best_final_uav_tw_violation_cost.values())
-        # best_total_win_cost = best_final_window_total_cost
-        # best_final_vehicle_max_times, best_final_global_max_time = get_max_completion_time(best_state_final_vehicle_arrive_time)
-        # best_final_vehicle_route_cost = best_final_objective - best_final_window_total_cost
 
         # 保存运行数据
         save_alns_results(
@@ -8399,7 +8164,7 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
 
 def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True):
+        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True, algo_seed=None, destroy_op=None, repair_op=None):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8418,7 +8183,8 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime)
+        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime, algo_seed=algo_seed
+        , destroy_op=destroy_op, repair_op=repair_op)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)

@@ -6,6 +6,8 @@ import time
 import glob
 import traceback
 import datetime
+
+from jupyter_server_terminals import msg
 import main
 from main import missionControl
 import sys
@@ -18,7 +20,7 @@ import pandas as pd
 from parseCSV import *
 from parseCSVstring import *
 
-from gurobipy import *
+# from gurobipy import *
 import os
 import os.path
 from subprocess import call		# allow calling an external command in python.  See http://stackoverflow.com/questions/89228/calling-an-external-command-in-python
@@ -30,6 +32,8 @@ from cbs_plan import *
 # from insert_plan import *
 from down_data import *
 from solve_mfstsp_heuristic import *
+import copy
+from multiprocessing import Process, Queue
 
 import distance_functions
 
@@ -38,7 +42,8 @@ from generate_test_problems import *
 startTime 		= time.time()
 
 METERS_PER_MILE = 1609.34
-
+REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
+ALGO_SEED_BASE = 10000
 
 UAVSpeedTypeString = {1: 'variable', 2: 'maximum', 3: 'maximum-range'}
 
@@ -192,7 +197,6 @@ def build_experiments():
             f"{ds}_N{n}_T{nt}_U{nu}_I{iters}_L{loop_iters}_S{seed}_"
             f"{tag_tr}_scale{cs}_{tag_ratio}_Z{zdr}"
         )
-
         cfg = {
             "problem_name": f"case_{nu}UAV_{nt}Truck",
             "save_name": save_name,
@@ -224,11 +228,63 @@ def build_experiments():
 
             "resume_if_exists": True,
         }
+        # 16组破坏/修复算子组合
+        for d_op in DESTROY_OPS:
+            for r_op in REPAIR_OPS:
+                op_tag = f"D-{d_op}_R-{r_op}"
 
-        experiments.append(cfg)
+                cfg2 = dict(cfg)
+                cfg2["destroy_op"] = d_op
+                cfg2["repair_op"] = r_op
+                cfg2["op_tag"] = op_tag
+
+                # 避免并行输出冲突：save_name/problem_name 加组合后缀
+                cfg2["save_name"] = f"{save_name}__{op_tag}"
+                cfg2["problem_name"] = f"{cfg2['problem_name']}__{op_tag}"
+
+                experiments.append(cfg2)
+
+        # experiments.append(cfg)
 
     return experiments
 
+def _make_run_config(base_cfg, exp_idx, rep_idx):
+    cfg = dict(base_cfg)
+
+    # 保持网络随机一致：seed 不变
+    cfg["seed"] = base_cfg.get("seed", 6)
+
+    # 算子随机性：每次不同
+    algo_seed = ALGO_SEED_BASE + exp_idx * 1000 + rep_idx
+    cfg["algo_seed"] = algo_seed
+
+    run_tag = f"exp{exp_idx}_rep{rep_idx}_algo{algo_seed}"
+    cfg["run_tag"] = run_tag
+
+    # 关键：避免并行输出冲突
+    cfg["save_name"] = f"{cfg['save_name']}_{run_tag}"
+    cfg["problem_name"] = f"{cfg['problem_name']}_{run_tag}"
+
+    cfg["resume_if_exists"] = False
+    return cfg
+
+def _worker(cfg):
+    missionControl(config=cfg)
+
+# 破坏/修复算子名称（与 fast_alns_solver.py 中方法名一致）
+DESTROY_OPS = [
+    "destroy_random_removal",
+    "destroy_worst_removal",
+    "destroy_comprehensive_removal",
+    "destroy_shaw_rebalance_removal",
+]
+
+REPAIR_OPS = [
+    "repair_greedy_insertion",
+    "repair_regret_insertion",
+    "noise_regret_insertion",
+    "repair_kNN_regret",
+]
 
 def run_batch_experiments():
     save_dir = r"VDAC\saved_solutions"
@@ -266,41 +322,24 @@ def run_batch_experiments():
         log_path = os.path.join(save_dir, f"{save_name}.log")
 
         # try:
-        t0 = time.time()
-        app = missionControl(config=config)
-        t1 = time.time()
+        # t0 = time.time()
+        # app = missionControl(config=config)
+        # t1 = time.time()
 
-        msg = f"[OK] {save_name} finished in {t1 - t0:.2f}s\n"
+        # msg = f"[OK] {save_name} finished in {t1 - t0:.2f}s\n"
+        # print(msg)
+        procs = []
+        for rep_idx in range(REPEAT_PER_TASK):
+            cfg = _make_run_config(config, idx-1, rep_idx)
+            p = Process(target=_worker, args=(cfg,))
+            p.start()
+            procs.append(p)
+
+        for p in procs:
+            p.join()
+
+        msg = f"[OK] {save_name} finished {REPEAT_PER_TASK} parallel runs\n"
         print(msg)
-
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"{datetime.datetime.now().isoformat()} {msg}")
-
-        success_count += 1
-
-        # except Exception as e:
-        #     fail_count += 1
-        #     print(f"[FAIL] {save_name}")
-        #     print(f"错误信息: {str(e)}")
-        #     traceback.print_exc()
-
-        #     with open(log_path, "a", encoding="utf-8") as f:
-        #         f.write(f"{datetime.datetime.now().isoformat()} [FAIL] {save_name}\n")
-        #         f.write(str(e) + "\n")
-        #         f.write(traceback.format_exc() + "\n")
-
-        #     # 继续下一个
-        #     continue
-
-    duration = time.time() - start_time_all
-
-    print("==========================================")
-    print("批量实验结束。")
-    print(f"总耗时: {duration:.2f} 秒")
-    print(f"成功: {success_count}, 跳过(已存在): {skip_count}, 失败: {fail_count}")
-    print(f"结果目录: {save_dir}")
-    print("==========================================")
-
 
 if __name__ == "__main__":
     run_batch_experiments()
