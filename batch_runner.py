@@ -7,7 +7,7 @@ import glob
 import traceback
 import datetime
 
-from jupyter_server_terminals import msg
+# from jupyter_server_terminals import msg
 import main
 from main import missionControl
 import sys
@@ -43,6 +43,7 @@ startTime 		= time.time()
 
 METERS_PER_MILE = 1609.34
 REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
+MAX_PARALLEL = 5 # 最大并行任务数
 ALGO_SEED_BASE = 10000
 
 UAVSpeedTypeString = {1: 'variable', 2: 'maximum', 3: 'maximum-range'}
@@ -135,17 +136,18 @@ def build_experiments():
     # num_points_list = [105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105, 105]
     # truck_list = [1, 1, 1, 1, 1, 2,2,2,2,3,3,3,3,3,4,4,4,4,4,5,5,5,5,5]
     # truck_list = [1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5]
-    num_points_list = [160,160,160,160,160,160,160,160]
-    truck_list = [2,6,2,4,4,4,6,6]
-    uav_list = [6,6,8,8,8,12,12,18]
-    iter_list = [500,500,500,500,500,500,500,500]
-    seeds = [6,6,6,6,6,6,6,6]
-    loop_iter_list = [10,10,10,10,10,10,10,10]
-    target_ranges = [None,None,None,None,None,None,None,None]
-    coord_scales = [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]
-    Z_coords = [0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05]
-    uav_distance_ratios = [None, None,None,None,None,None,None,None]
-    uav_distances = [20, 20,20,20,20,20,20,20]
+    # num_points_list = [160,160,160,160,160,160,160,160]
+    # truck_list = [2,6,2,4,4,4,6,6]
+    # uav_list = [6,6,8,8,8,12,12,18]
+    # iter_list = [500,500,500,500,500,500,500,500]
+    # seeds = [6,6,6,6,6,6,6,6]
+    # # loop_iter_list = [10,10,10,10,10,10,10,10]
+    # loop_iter_list = [1,1,1,1,1,1,1,1]
+    # target_ranges = [None,None,None,None,None,None,None,None]
+    # coord_scales = [1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]
+    # Z_coords = [0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05]
+    # uav_distance_ratios = [None, None,None,None,None,None,None,None]
+    # uav_distances = [20, 20,20,20,20,20,20,20]
     # uav_list = [1, 2, 3, 4, 5, 2, 4, 6, 8, 10, 3, 6, 9, 12, 15, 4, 8, 12, 16, 20, 5, 10, 15, 20, 25]
     # uav_list = [1, 2, 3, 4, 5, 2, 4, 6, 8, 3, 6, 9, 12, 15, 4, 8, 12, 16, 20, 5, 10, 15, 20, 25]
     # iter_list = [300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300, 300]
@@ -159,6 +161,19 @@ def build_experiments():
     # uav_distance_ratios = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
     # uav_distances = [25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25]
 
+    # 消融实验配置配比
+    num_points_list = [160]
+    truck_list = [6]
+    uav_list = [12]
+    iter_list = [500]
+    seeds = [6]
+    # loop_iter_list = [10,10,10,10,10,10,10,10]
+    loop_iter_list = [1]
+    target_ranges = [None]
+    coord_scales = [1.0]
+    Z_coords = [0.05]
+    uav_distance_ratios = [None]
+    uav_distances = [20]
     # =========================
     # ✅ MODIFIED: 对齐/广播工具
     # =========================
@@ -334,6 +349,11 @@ def run_batch_experiments():
             p = Process(target=_worker, args=(cfg,))
             p.start()
             procs.append(p)
+            # 达到并行上限就先等这一批结束
+            if len(procs) >= MAX_PARALLEL:
+                for p in procs:
+                    p.join()
+                procs.clear()
 
         for p in procs:
             p.join()

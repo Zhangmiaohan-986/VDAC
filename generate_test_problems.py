@@ -15,6 +15,7 @@ def generate_points(num_points,seed):
     # file_path_R201 = r'VDAC\map_test\R201.txt'
     # file_path_RC101 = r'VDAC\map_test\RC101.txt'
     file_path_R201 = r'VDAC\map_test\RC1_4_1.TXT'
+    # file_path_R201 = r'map_test\RC1_4_1.TXT'
 
     np.random.seed(seed)
     with open(file_path_R201, 'r') as file:

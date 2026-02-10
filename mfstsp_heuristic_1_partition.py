@@ -5,7 +5,7 @@ import time
 import datetime
 import math
 from parseCSV import *
-from gurobipy import *
+# from gurobipy import *
 from collections import defaultdict
 
 from solve_tsp_callback import *

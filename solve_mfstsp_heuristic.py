@@ -38,7 +38,10 @@ TYPE_UAV 		= 2
 #
 
 METERS_PER_MILE = 1609.34
-SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\data_total"
+# SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\data_total"xiaorong_data_total
+SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\xiaorong_data_total"
+# SAVE_DIR_TOTAL = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions\xiaorong_data_total"
+
 
 # http://stackoverflow.com/questions/635483/what-is-the-best-way-to-implement-nested-dictionaries-in-python
 def make_dict():
@@ -86,7 +89,7 @@ class make_packages:
 
 
 # def solve_mfstsp_heuristic(node, vehicle, travel, problemName, vehicleFileID, numUAVs, UAVSpeedType):
-def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations, loop_iterations, algo_seed, run_tag=None, destroy_op=None, repair_op=None):
+def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_types, ground_node_types, numPoints, numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName, max_iterations, loop_iterations, algo_seed, run_tag=None, destroy_op=None, repair_op=None, op_tag=None):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -189,15 +192,15 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	numCustomers = len(C)
 	solveAlns = "H-alns"  # 此处改为算子情况
 	# 判断当前阶段任务是否有文件夹了，没有就建立D:\NKU\VDAC_PAP\VDAC\saved_solutions
-	# ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
 	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
 	# SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
 	# SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
-	ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"  # 按你的新路径要求
+	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"  # 按你的新路径要求
 
 	op_suffix = f"__D-{destroy_op}__R-{repair_op}" if destroy_op and repair_op else ""
 	SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总{op_suffix}"
-	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
+	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务消融实验汇总"
 
 	# 1) 确保 ROOT_BASE_DIR 存在
 	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
@@ -227,20 +230,11 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	# 是否允许无人机拥堵调度
 	allow_uav_congestion = False
 	for iter in range(loop_iterations):
-		# 初始化仿真实验结果
-		# best_total_cost_list = np.append(best_total_cost_list, float('inf'))
-		# best_uav_plan_list.append([])
-		# best_customer_plan_list.append([])
-		# best_time_uav_task_dict_list.append([])
-		# best_vehicle_plan_time_list.append([])
-		# best_vehicle_task_data_list.append([])
-		# best_global_reservation_table_list.append([])
-
 		# 获得高质量初始卡车路径分配方案
 		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID,
 		 V, T, vehicle, uav_travel, veh_distance, veh_travel, 
 		N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
-		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, numPoints, numTrucks, numUAVs)
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, numPoints, numTrucks, numUAVs, op_tag)
 		# # 处理空跑节点
 		# rm_empty_vehicle_route, empty_nodes_by_vehicle = rm_empty_node(init_customer_plan, init_vehicle_route)
 		# rm_empty_node_cost = calculate_plan_cost(init_uav_plan, rm_empty_vehicle_route, vehicle, T, V, veh_distance)
@@ -320,7 +314,21 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 			final_work_time_curve_list=H_alns_final_work_time,
 		)
 		print(f"H-ALNS求解完成。")
-	export_results_to_excel(results_all, str('H_ALNS_'+problemName+'customer_node_num_'+str(len(C))), save_dir=SAVE_DIR_TOTAL)
+	base_dir_route = SAVE_DIR_TOTAL  # 基础目录
+	# 目标子目录：按客户数 + 算子组合分组
+	folder_name = f"{len(C)}customers{op_tag}"
+	target_dir = os.path.join(base_dir_route, folder_name)
+	# 没有就创建
+	os.makedirs(target_dir, exist_ok=True)
+	# 文件名带 algo_seed
+	export_name = f"H_ALNS_{problemName}_customer_node_num_{len(C)}{op_tag}_{algo_seed}"
+	# 保存到新目录
+	export_results_to_excel(results_all, export_name, save_dir=target_dir)
+
+	# base_dir_route = SAVE_DIR_TOTAL  # 基础路线
+	# # 判读这个路线下是否有文件夹，没有就建立一个，然后把内容export_results_to_excel存进去
+
+	# export_results_to_excel(results_all, str('H_ALNS_'+problemName+'customer_node_num_'+str(len(C))+op_tag+f"_{algo_seed}"), save_dir=SAVE_DIR_TOTAL)
 		
 # ========= 工具函数 =========
 def _to_py(obj):

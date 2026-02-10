@@ -1,11 +1,8 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
-    // 悬停以查看现有属性的描述。
-    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Python Debugger: Current File (多进程调试)",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
@@ -16,7 +13,13 @@
                 "3",
                 "1"
             ],
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            // 以下是新增/修改的核心配置（支持多进程调试）
+            "subProcess": true,        // 关键：启用子进程调试跟踪
+            "justMyCode": false,       // 可选：允许调试导入的模块（如main.py里的missionControl）
+            "env": {
+                "PYTHONUNBUFFERED": "1" // 可选：确保子进程日志实时输出，不卡顿
+            }
         }
     ]
 }

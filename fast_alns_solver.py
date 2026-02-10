@@ -568,25 +568,33 @@ class IncrementalALNS:
         self.vtp_destroy_quantity = {'random': (1, 2), 'worst': 1, 'shaw': 2}
         self.cluster_vtp_dict, self.map_cluster_vtp_dict = self.cluster_vtp_for_customers(k=self.dis_k)
         # 定义算子池，方便后续引用
-        # self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal, self.destroy_comprehensive_removal,self.destroy_shaw_rebalance_removal]
-        # self.destroy_operators = [self.destroy_random_removal, self.destroy_worst_removal]
-        # self.destroy_operators = [self.destroy_worst_removal]
-        # self.destroy_operators = [self.destroy_shaw_rebalance_removal]
-        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion]
-        # self.repair_operators = [self.repair_kNN_regret]
-        # self.destroy_operators = [self.destroy_random_removal]
-        # self.repair_operators = [self.repair_regret_insertion]
-        # self.repair_operators = [self.noise_regret_insertion]
-        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion, self.noise_regret_insertion, self.repair_kNN_regret]
-        # self.repair_operators = [self.repair_greedy_insertion, self.repair_regret_insertion,self.repair_kNN_regret]
-        # 如果外部指定算子组合，则只保留该算子
+        # 先定义默认算子列表（必须先有）
+        self.destroy_operators = [
+            self.destroy_random_removal,
+            self.destroy_worst_removal,
+            self.destroy_comprehensive_removal,
+            self.destroy_shaw_rebalance_removal
+        ]
+        self.repair_operators = [
+            self.repair_greedy_insertion,
+            self.repair_regret_insertion,
+            self.noise_regret_insertion,
+            self.repair_kNN_regret
+        ]
+
+        # 再做筛选
         if destroy_op:
+            if isinstance(destroy_op, str):
+                destroy_op = [destroy_op]
             name_map = {op.__name__: op for op in self.destroy_operators}
             self.destroy_operators = [name_map[n] for n in destroy_op if n in name_map]
 
         if repair_op:
+            if isinstance(repair_op, str):
+                repair_op = [repair_op]
             name_map = {op.__name__: op for op in self.repair_operators}
             self.repair_operators = [name_map[n] for n in repair_op if n in name_map]
+
 
         self.params = {
             'k_neighbors': 3,  # 1. 协同邻居数

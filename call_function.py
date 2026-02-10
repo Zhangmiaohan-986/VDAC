@@ -1,8 +1,8 @@
 import math
 import random
 import numpy as np
-import gurobipy as gp
-from gurobipy import GRB
+# import gurobipy as gp
+# from gurobipy import GRB
 
 # 检查方案插入同一个车辆中是否满足约束条件
 def check_same_vehicle_conflict(v_id, drone_id, i_vtp, j_vtp, 

@@ -1,4 +1,4 @@
-from gurobipy import *
+# from gurobipy import *
 
 def checkP2Feasibility(UAVPossibleCust, TSP, V, Pprime):
 

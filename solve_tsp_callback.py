@@ -4,7 +4,7 @@ import sys
 import time
 import datetime
 import math
-from gurobipy import *
+# from gurobipy import *
 from collections import defaultdict
 from dfs import *
 

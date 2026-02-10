@@ -10,7 +10,7 @@ from utils_shared import *
 from parseCSV import *
 from parseCSVstring import *
 
-# from gurobipy import *
+from gurobipy import *
 import os
 import os.path
 from subprocess import call		# allow calling an external command in python.  See http://stackoverflow.com/questions/89228/calling-an-external-command-in-python
@@ -287,9 +287,9 @@ class missionControl():
 		
 		# 参数输入设置
 		# num_points = 100
-		seed = self.seed
-		Z_coord = self.Z_coord
-		uav_distance = self.uav_distance
+		# seed = self.seed
+		# Z_coord = self.Z_coord
+		# uav_distance = self.uav_distance
 
 		# numUAVs = 6  # 无人机数量
 		# UAVSpeedType = 1
