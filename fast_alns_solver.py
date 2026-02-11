@@ -721,7 +721,7 @@ class IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, summary_dir=None, max_runtime=60, seed=None):
+        iter, max_iterations, summary_dir=None, max_runtime=60, seed=None, algo_seed=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -760,9 +760,11 @@ class IncrementalALNS:
         self.max_runtime = max_runtime
         # self.rng = rnd.default_rng(42)
         # ===== PATCH: 每个任务/rep 使用自己的随机流（可复现）=====
-        self.seed = None if seed is None else int(seed)
-        self.rng = np.random.default_rng(self.seed)
-
+        if algo_seed is None:
+            algo_seed = 42
+        self.rng = rnd.default_rng(algo_seed)
+        random.seed(algo_seed)
+        np.random.seed(algo_seed)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间
@@ -822,46 +824,6 @@ class IncrementalALNS:
             }
         }
     
-    # def base_drone_assigment(self):
-    #     """
-    #     基础无人机分配函数
-    #     将无人机均匀分配给车辆，每个车辆分配连续的无人机ID
-        
-    #     Returns:
-    #         dict: 车辆ID为key，无人机ID列表为value的字典
-    #         例如: 6个无人机，3个车辆 -> {1: [1, 2], 2: [3, 4], 3: [5, 6]}
-    #     """
-    #     # 获取车辆数量和无人机数量
-    #     num_vehicles = len(self.T)
-    #     num_drones = len(self.V)
-        
-    #     # 创建基础分配字典
-    #     base_assignment = {}
-        
-    #     # 计算每个车辆应该分配的无人机数量
-    #     drones_per_vehicle = num_drones // num_vehicles
-    #     remaining_drones = num_drones % num_vehicles
-        
-    #     drone_start = 1+num_drones  # 无人机ID从1开始
-        
-    #     for vehicle_id in range(1, num_vehicles + 1):
-    #         # 计算当前车辆应该分配的无人机数量
-    #         current_drone_count = drones_per_vehicle
-    #         if vehicle_id <= remaining_drones:  # 前几个车辆多分配一个无人机
-    #             current_drone_count += 1
-            
-    #         # 分配连续的无人机ID
-    #         vehicle_drones = list(range(drone_start, drone_start + current_drone_count))
-    #         base_assignment[vehicle_id] = vehicle_drones
-            
-    #         # 更新下一个车辆的起始无人机ID
-    #         drone_start += current_drone_count
-        
-    #     # print(f"基础无人机分配完成:")
-    #     # for vehicle_id, drones in base_assignment.items():
-    #     #     print(f"  车辆 {vehicle_id}: 无人机 {drones}")
-        
-    #     return base_assignment
     def base_drone_assigment(self):
         """
         基础无人机分配函数 (修正版)
@@ -8420,7 +8382,7 @@ def create_fast_initial_state(init_total_cost, init_uav_plan, init_customer_plan
 
 def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True, seed=None):
+        iter, max_iterations, max_runtime=60, summary_dir=None, use_incremental=True, seed=None, algo_seed=None):
     """
     使用高效ALNS求解mFSTSP问题
     
@@ -8439,7 +8401,7 @@ def solve_with_fast_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
         veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime, seed=seed)
+        iter=iter, max_iterations=max_iterations, summary_dir=summary_dir, max_runtime=max_runtime, seed=seed, algo_seed=algo_seed)
     # else:
     #     # 使用快速ALNS
     #     alns_solver = FastALNS(max_iterations=max_iterations, max_runtime=max_runtime)

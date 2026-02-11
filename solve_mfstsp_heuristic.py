@@ -91,7 +91,7 @@ def solve_mfstsp_heuristic(
     numUAVs, numTrucks, uav_travel, veh_travel, veh_distance, G_air, G_ground,
     customer_time_windows_h, early_arrival_cost, late_arrival_cost,
     problemName, max_iterations, loop_iterations,
-    run_tag=None, algorithm=None, seed=None, output_root=None):
+    run_tag=None, algorithm=None, seed=None, algo_seed=None, instance_name=None):
 	# 建立系统参数：
 	C 			= [] # 客户列表
 	tau			= defaultdict(make_dict) # 卡车旅行时间
@@ -201,43 +201,33 @@ def solve_mfstsp_heuristic(
 	numTrucks = len(T)
 	numUAVs = len(V)
 	numCustomers = len(C)
-	# solveAlns = "H-alns"
-	# # 判断当前阶段任务是否有文件夹了，没有就建立
-	# ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+
+	solveAlns = algorithm  # 此处改为算子情况
+	# 判断当前阶段任务是否有文件夹了，没有就建立D:\NKU\VDAC_PAP\VDAC\saved_solutions
+	ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
 	# SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
 	# SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
-	# # 1) 确保 ROOT_BASE_DIR 存在
-	# os.makedirs(ROOT_BASE_DIR, exist_ok=True)
+	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"  # 按你的新路径要求
 
-	# # 2) ROOT_BASE_DIR 下的 SUMMARY_PARENT
-	# parent_dir = os.path.join(ROOT_BASE_DIR, SUMMARY_PARENT)
-	# if not os.path.isdir(parent_dir):
-	# 	os.makedirs(parent_dir, exist_ok=True)  # 不存在就创建
-	# # 存在就不管
+	# op_suffix = f"__D-{destroy_op}__R-{repair_op}" if destroy_op and repair_op else ""
+	SUMMARY_PARENT = f"{solveAlns}_C{numCustomers}result"
+	SUMMARY_FOLDER = f"{solveAlns}_T{numUAVs}_U{numCustomers}"
 
-	# # 3) SUMMARY_PARENT 下的 SUMMARY_FOLDER
-	# summary_dir = os.path.join(parent_dir, SUMMARY_FOLDER)
-	# if not os.path.isdir(summary_dir):
-	# 	os.makedirs(summary_dir, exist_ok=True)  # 不存在就创建
-
-	# ===== PATCH: 并行安全的目录结构（按algorithm + run_tag隔离）=====
-	solveAlns_tag = {"H_ALNS": "H_alns", "T_ALNS": "T_alns", "T_I_ALNS": "T_I_alns"}.get(algorithm, str(algorithm))
-
-	ROOT_BASE_DIR = output_root or r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	# 1) 确保 ROOT_BASE_DIR 存在
 	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
 
-	SUMMARY_PARENT = f"{solveAlns_tag}solve_{numCustomers}customers_results_summary"
-	SUMMARY_FOLDER = f"{numTrucks}trucks_{numUAVs}uavs_deliver_{numCustomers}customers_tasks_summary"
+	# 2) ROOT_BASE_DIR 下的 SUMMARY_PARENT
+	parent_dir = os.path.join(ROOT_BASE_DIR, SUMMARY_PARENT)
+	if not os.path.isdir(parent_dir):
+		os.makedirs(parent_dir, exist_ok=True)  # 不存在就创建
+	# 存在就不管
 
-	if run_tag is None:
-		run_tag = f"{algorithm}__{problemName}__seed{seed}"
+	# 3) SUMMARY_PARENT 下的 SUMMARY_FOLDER
+	summary_dir = os.path.join(parent_dir, SUMMARY_FOLDER)
+	if not os.path.isdir(summary_dir):
+		os.makedirs(summary_dir, exist_ok=True)  # 不存在就创建
 
-	summary_dir = os.path.join(ROOT_BASE_DIR, SUMMARY_PARENT, SUMMARY_FOLDER, run_tag)
-	os.makedirs(summary_dir, exist_ok=True)
-
-	# 总汇总Excel输出目录（并行安全：每个run写不同文件名）
-	SAVE_DIR_TOTAL = os.path.join(ROOT_BASE_DIR, "data_total")
-	os.makedirs(SAVE_DIR_TOTAL, exist_ok=True)
 
 	# 上述内容将基础参数全部处理完成，随后开始仿真实验处理
 	# results_all = init_results_framework(["H_ALNS"])  # 后续加别的算法名即可
@@ -254,15 +244,6 @@ def solve_mfstsp_heuristic(
 	# 是否允许无人机拥堵调度
 	allow_uav_congestion = False
 	for iter in range(loop_iterations):
-		# 初始化仿真实验结果
-		# best_total_cost_list = np.append(best_total_cost_list, float('inf'))
-		# best_uav_plan_list.append([])
-		# best_customer_plan_list.append([])
-		# best_time_uav_task_dict_list.append([])
-		# best_vehicle_plan_time_list.append([])
-		# best_vehicle_task_data_list.append([])
-		# best_global_reservation_table_list.append([])
-
 		# 获得高质量初始卡车路径分配方案
 		init_total_cost, init_uav_plan, init_customer_plan, init_time_uav_task_dict, init_uav_cost, init_vehicle_route, init_vehicle_plan_time, init_vehicle_task_data, init_global_reservation_table=initial_route(node, DEPOT_nodeID,
 		 V, T, vehicle, uav_travel, veh_distance, veh_travel, 
@@ -298,7 +279,7 @@ def solve_mfstsp_heuristic(
 				A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
 				air_node_types, ground_node_types, A_c, xeee,
 				customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-				iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True, seed=seed
+				iter=iter, max_iterations=max_iterations, max_runtime=30, summary_dir=summary_dir, use_incremental=True, seed=seed, algo_seed=algo_seed
 			)
 			record_one_run(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
 			results_all[algorithm],
@@ -427,12 +408,17 @@ def solve_mfstsp_heuristic(
 			)
 			print(f"T-I-ALNS_finished_{iter}_iterations")
 
-	# export_results_to_excel(results_all, str('H_ALNS_'+problemName+'customer_node_num_'+str(len(C))), save_dir=SAVE_DIR_TOTAL)
-	export_results_to_excel(
-	results_all,
-	problemName=f"{algorithm}__{problemName}__{run_tag}__seed{seed}",
-	save_dir=SAVE_DIR_TOTAL
-	)
+	base_dir_route = SAVE_DIR_TOTAL  # 基础目录
+	# 目标子目录：按客户数 + 算子组合分组
+	folder_name = f"{len(C)}customers{algorithm}"
+	target_dir = os.path.join(base_dir_route, folder_name)
+	# 没有就创建
+	os.makedirs(target_dir, exist_ok=True)
+	# 文件名带 algo_seed
+	export_name = f"{algorithm}_{problemName}_C_{len(C)}_{run_tag}"
+	# 保存到新目录
+	export_results_to_excel(results_all, export_name, save_dir=target_dir)
+	print(f"H-ALNS求解完成，保存到文件中。")
 		
 # ========= 工具函数 =========
 def _to_py(obj):

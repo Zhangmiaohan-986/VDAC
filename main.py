@@ -54,13 +54,6 @@ UAV_DISTANCE = 25
 def make_dict():# 设计实现一个可以无线嵌套的dict
 	return defaultdict(make_dict)
 
-	# Usage:
-	# tau = defaultdict(make_dict)
-	# v = 17
-	# i = 3
-	# j = 12
-	# tau[v][i][j] = 44
-
 class make_node: 
 	def __init__(self, index, nodeType, latDeg, lonDeg, altMeters, parcelWtLbs, serviceTimeTruck, serviceTimeUAV, map_key, map_type, map_position, map_index):
 		# Set node[nodeID]
@@ -124,20 +117,6 @@ class make_vehicle:  # 添加车辆和无人机的各类属性集合
 			self.is_available = True  # 无人机是否可用
 			self.returnable_nodes = []  # 可返回的节点列表
 			self.violate = False  # 判断是否违背了约束条件
-	# 		self.init_dict_vehicle()
-	# def init_dict_vehicle(self):
-	# 	"""初始化无人机的dict_vehicle"""
-	# 	if self.vehicleType == TYPE_UAV:
-	# 		class VehicleInfo:
-	# 			def __init__(self):
-	# 				self.drone_belong = None  # 无人机属于哪辆车
-	# 				self.precise_arrive_time = 0     # 精确时间
-	# 				self.precise_departure_time = 0
-	# 				self.launch_time = None   # 发射时间
-	# 				self.recovery_time = [] # 回收时间
-	# 		# 为每个可能的车辆ID创建一个VehicleInfo实例
-	# 	for vehicle_id in range(1, 3):  # 假设最多100辆车，可以根据实际情况调整, 后期修改车辆数据这里需要进一步修改
-	# 		self.dict_vehicle[vehicle_id] = VehicleInfo()
 
 	def add_drone(self, drone):
 		self.drones[drone.id] = drone
@@ -157,107 +136,12 @@ class make_travel:
 		self.totalDistance	 = totalDistance
 		self.path			 = path
 
-# def find_keys_and_indices(dictionary, target_value):
-#     """
-#     查找字典中值对应的键及其索引位置。
-    
-#     参数:
-#     dictionary (dict): 要查找的字典
-#     target_value: 要查找的值
-    
-#     返回:
-#     list: 包含元组 (键, 索引) 的列表，按键在字典中出现的顺序排列
-#     """
-#     result = []
-#     for index, (key, value) in enumerate(dictionary.items()):
-#         if value == target_value:
-#             result.append((key, index, value))
-#     return result
-
-# def find_same_xy_different_z(positions_dict, target_position):
-#     """
-#     在positions_dict中找到与target_position具有相同x和y坐标，但z坐标不同的项。
-    
-#     参数:
-#     positions_dict (dict): 一个键从0到n的字典，每个值是一个(x,y,z)坐标。
-#     target_position (tuple): 目标坐标(x,y,z)。
-    
-#     返回:
-#     tuple: (key, key, position)，包含找到项的键和坐标。
-#     如果没有找到匹配的项，返回None。
-#     """
-#     target_x, target_y, target_z = target_position
-    
-#     for key, position in positions_dict.items():
-#         # 跳过相同的位置
-#         if position == target_position:
-#             continue
-        
-#         x, y, z = position
-#         # 检查xy是否相同且z不同
-#         if x == target_x and y == target_y and z != target_z:
-#             # 返回匹配的项(键，键，坐标)格式
-#             return (key, key, position)
-    
-#     # 如果没有找到匹配项
-#     return None
-
-
-
-# def merge_and_renumber_dicts(air_node_types, ground_node_types):
-#     """
-#     将两个字典合并并重新编号，键从0开始递增。
-#     先处理 air_node_types，再处理 ground_node_types，保持顺序。
-    
-#     参数:
-#     air_node_types (dict): 空中节点类型字典
-#     ground_node_types (dict): 地面节点类型字典
-    
-#     返回:
-#     dict: 合并后重新编号的字典
-#     """
-#     merged = {}
-#     current_index = 0
-    
-#     # 处理 air_node_types，保持原始顺序
-#     for key in sorted(air_node_types.keys()):
-#         merged[current_index] = air_node_types[key]
-#         current_index += 1
-    
-#     # 处理 ground_node_types，保持原始顺序
-#     for key in sorted(ground_node_types.keys()):
-#         merged[current_index] = ground_node_types[key]
-#         current_index += 1
-    
-#     return merged
-
-# 输出:
-# {0: "airplane", 1: "drone", 2: "tank", 3: "truck"}
-
 class missionControl():
 	def __init__(self,config=None):
 		
 		timestamp = datetime.datetime.strftime(datetime.datetime.now(), '%Y-%m-%d %H:%M:%S')
 		# 获取基准路径（建议在类外部定义）
 		self.base_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前文件绝对路径的目录
-		# if (len(sys.argv) == 6):  # 给出各种参数，包括无人机数量
-		# 	problemName 		= sys.argv[1]
-		# 	vehicleFileID		= int(sys.argv[2])
-		# 	UAVSpeedType 		= int(sys.argv[3])
-		# 	# numUAVs				= int(sys.argv[4])
-		# 	# numTrucks			= int(sys.argv[5])
-		# 	# 使用 os.path.join 构建跨平台兼容路径
-		# 	# self.locationsFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_locations.csv')
-		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_{vehicleFileID}.csv')
-		# 	# self.vehiclesFile = os.path.join(self.base_dir, 'Problems', f'tbl_vehicles_tits.csv')
-		# 	# self.distmatrixFile = os.path.join(self.base_dir, 'Problems', problemName, 'tbl_truck_travel_data_PG.csv')
-		# 	# self.solutionSummaryFile = os.path.join(
-		# 	# 	self.base_dir, 'Problems', problemName, 
-		# 	# 	f'tbl_solutions_{vehicleFileID}_{numUAVs}_{UAVSpeedTypeString[UAVSpeedType]}.csv'
-		# 	# )
-		# else:
-		# 	print(f'ERROR: Expected 5 parameters, got {len(sys.argv)-1}.')
-		# 	quit()	
 		# 如果传入了 config 字典，使用 config 中的参数；否则使用默认值
 		if config:
 			self.problemName = config.get('problem_name', 'case_001') # 或者从 config 读
@@ -277,7 +161,10 @@ class missionControl():
 			self.seed = int(config.get("seed", 6))
 			self.Z_coord = float(config.get("Z_coord", 0.05))
 			self.uav_distance = float(config.get("uav_distance", 15))
-			global SEED, Z_COORD, UAV_DISTANCE
+			self.algo_seed = config.get("algo_seed", None)
+			self.Z_coord = config.get("Z_coord", 0.05)
+			self.uav_distance = config.get("uav_distance", 15)
+			# self.run_tag = config.get("run_tag", None)
 			SEED = self.seed
 			Z_COORD = self.Z_coord
 			UAV_DISTANCE = self.uav_distance
@@ -287,9 +174,9 @@ class missionControl():
 			np.random.seed(self.seed)
 
 			# 保存/分发标识
-			self.run_tag = config.get("save_name", "default_experiment")
-			self.algorithm = config.get("algorithm", "H_ALNS")
-			self.output_root = config.get("output_root", os.path.join(self.base_dir, "saved_solutions"))
+			self.run_tag = config.get("run_tag", "default_experiment")
+			self.algorithm = config.get("algorithm_name", "H_ALNS")
+			# self.output_root = config.get("output_root", os.path.join(self.base_dir, "saved_solutions"))
 			UAVSpeedType = 1
 		else:
 		# 保留你原来的 sys.argv 逻辑作为备用，或者直接写死默认值
@@ -385,9 +272,11 @@ class missionControl():
 			run_tag=self.run_tag,
 			algorithm=self.algorithm,
 			seed=self.seed,
-			output_root=self.output_root
+			algo_seed=self.algo_seed,
+			instance_name=self.instance_name
 		)
 		print('所有任务完成')
+		return config
 
 	# 读取车辆数据
 	def readData(self, numUAVs, numTrucks, per_uav_cost, per_vehicle_cost, max_Drones, num_points): # 读取车辆数据
