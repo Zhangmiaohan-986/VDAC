@@ -980,8 +980,8 @@ def load_input_data(filename):
     3. 对于 node/vehicle/task，直接返回 pickle 还原的对象（保留了方法）
     """
     
-    # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
-    save_dir = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
+    save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    # save_dir = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
 
     # -------- 1. 路径与文件名解析 --------
     # 如果传入的是完整路径且存在，直接用

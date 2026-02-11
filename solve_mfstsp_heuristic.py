@@ -26,7 +26,7 @@ from rm_node_sort_node import rm_empty_node
 import main
 import endurance_calculator
 import distance_functions
-
+import numpy as np
 import random
 
 # 
@@ -36,7 +36,16 @@ NODE_TYPE_CUST	= 1
 TYPE_TRUCK 		= 1
 TYPE_UAV 		= 2
 #
-
+OP_MAP = {
+    "destroy_random_removal": "RandRm",
+    "destroy_worst_removal": "WstRm",
+    "destroy_comprehensive_removal": "CompRm",
+    "destroy_shaw_rebalance_removal": "ShawRm",
+    "repair_greedy_insertion": "GrdIns",
+    "repair_regret_insertion": "RegIns",
+    "noise_regret_insertion": "NoisReg",
+    "repair_kNN_regret": "KNNReg",
+}
 METERS_PER_MILE = 1609.34
 # SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\data_total"xiaorong_data_total
 SAVE_DIR_TOTAL = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions\xiaorong_data_total"
@@ -197,10 +206,18 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	# SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
 	# SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
 	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"  # 按你的新路径要求
-
-	op_suffix = f"__D-{destroy_op}__R-{repair_op}" if destroy_op and repair_op else ""
-	SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总{op_suffix}"
-	SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务消融实验汇总"
+	if destroy_op and repair_op:
+		# 尝试从字典获取缩写，如果字典里没有，就默认取单词的前3个字母防止报错
+		d_short = OP_MAP.get(destroy_op, destroy_op[:3])
+		r_short = OP_MAP.get(repair_op, repair_op[:3])
+		
+		# op_suffix 变得非常短，例如: "_RandRm_NoisReg"
+		op_suffix = f"{d_short}_{r_short}"
+	else:
+		op_suffix = ""
+	# op_suffix = f"__D-{destroy_op}__R-{repair_op}" if destroy_op and repair_op else ""
+	SUMMARY_PARENT = f"{solveAlns}_{numCustomers}result_{op_suffix}"
+	SUMMARY_FOLDER = f"{numTrucks}T{numUAVs}U{numCustomers}N_xiaorong"
 
 	# 1) 确保 ROOT_BASE_DIR 存在
 	os.makedirs(ROOT_BASE_DIR, exist_ok=True)
@@ -254,6 +271,9 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 		H_alns_initial_state = initial_state.fast_copy()
 		T_alns_initial_state = initial_state.fast_copy()
 		# 使用高效ALNS求解（增量式算法，避免深拷贝）,输出最佳方案结果，并保存到文件中
+		if algo_seed is not None:
+			random.seed(algo_seed)
+			np.random.seed(algo_seed)
 		(H_alns_best_state, H_alns_best_final_state, H_alns_best_objective, H_alns_best_final_objective, H_alns_best_final_uav_cost, 
 		H_alns_best_final_win_cost, H_alns_best_total_win_cost, H_alns_best_final_global_max_time, H_alns_best_global_max_time, H_alns_best_window_total_cost, 
 		H_alns_best_total_uav_tw_violation_cost, H_alns_best_total_vehicle_cost, H_alns_elapsed_time, H_alns_win_cost, H_alns_uav_route_cost, H_alns_vehicle_route_cost, 
@@ -321,9 +341,10 @@ def solve_mfstsp_heuristic(node, vehicle, air_matrix, ground_matrix, air_node_ty
 	# 没有就创建
 	os.makedirs(target_dir, exist_ok=True)
 	# 文件名带 algo_seed
-	export_name = f"H_ALNS_{problemName}_customer_node_num_{len(C)}{op_tag}_{algo_seed}"
+	export_name = f"HLNS_{problemName}_cust_{len(C)}{op_tag}_{algo_seed}"
 	# 保存到新目录
 	export_results_to_excel(results_all, export_name, save_dir=target_dir)
+	print(f"H-ALNS求解完成，保存到文件中。")
 
 	# base_dir_route = SAVE_DIR_TOTAL  # 基础路线
 	# # 判读这个路线下是否有文件夹，没有就建立一个，然后把内容export_results_to_excel存进去

@@ -254,7 +254,8 @@ class missionControl():
 			self.max_iterations = config.get('iterations', 500) # 动态获取迭代次数
 			self.instance_name = config.get('save_name', 'default_experiment') # 动态获取保存文件名
 			self.air_node_num, self.ground_node_num, self.customer_node_num = config.get('split_ratio', (1/3, 1/3, 1/3)) # 动态获取空中air，地面节点以及客户节点数量
-			self.algo_seed = config.get("seed", 6)
+			# self.algo_seed = config.get("seed", 6)
+			self.algo_seed = config.get("algo_seed", None)
 			self.Z_coord = config.get("Z_coord", 0.05)
 			self.uav_distance = config.get("uav_distance", 15)
 			self.run_tag = config.get("run_tag", None)

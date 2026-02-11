@@ -1638,7 +1638,7 @@ def save_alns_results(
                 df_final_uav.to_excel(writer, sheet_name="final_uav_plan", index=False)
         
         print(f"[save_alns_results] best_final_state 已保存到: {best_final_state_xlsx_path}")
-
+    # print(f"algo_seed: {algo_seed}")
     print(f"[save_alns_results] 结果已保存到目录: {case_dir}")
 
 

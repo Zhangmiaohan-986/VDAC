@@ -555,7 +555,12 @@ class IncrementalALNS:
         # self.initial_temperature = 500.0
         self.max_runtime = max_runtime
         # self.rng = rnd.default_rng(42)
+        # self.rng = rnd.default_rng(algo_seed)
+        if algo_seed is None:
+            algo_seed = 42
         self.rng = rnd.default_rng(algo_seed)
+        random.seed(algo_seed)
+        np.random.seed(algo_seed)
         self.vtp_coords = np.array([self.node[i].position for i in self.A_vtp])
         self.num_clusters = min(len(self.T), len(self.A_vtp))
         self.dis_k = 25  # 修改距离客户点最近的vtp节点集合，增加解空间

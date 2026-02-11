@@ -89,7 +89,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = "my_special_result_20num_3v_6d_100n"
     # input_filename = "my_special_result_30num_3v_6d_100n"
     # input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-    input_filename = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n_{op_tag}"
+    input_filename = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n_xiaorong"
     # save_dir = r"VDAC\saved_solutions"
     # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
     save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
@@ -150,7 +150,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
         # custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-        custom_name = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
+        custom_name = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n_xiaorong"
 
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名

@@ -45,7 +45,16 @@ METERS_PER_MILE = 1609.34
 REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
 MAX_PARALLEL = 5 # 最大并行任务数
 ALGO_SEED_BASE = 10000
-
+OP_ABBR = {
+    "destroy_random_removal": "RandRm",
+    "destroy_worst_removal": "WstRm",
+    "destroy_comprehensive_removal": "CompRm",
+    "destroy_shaw_rebalance_removal": "ShawRm",
+    "repair_greedy_insertion": "GrdIns",
+    "repair_regret_insertion": "RegIns",
+    "noise_regret_insertion": "NoisReg",
+    "repair_kNN_regret": "KNNReg",
+}
 UAVSpeedTypeString = {1: 'variable', 2: 'maximum', 3: 'maximum-range'}
 
 
@@ -162,7 +171,7 @@ def build_experiments():
     # uav_distances = [25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25]
 
     # 消融实验配置配比
-    num_points_list = [160]
+    num_points_list = [165]
     truck_list = [6]
     uav_list = [12]
     iter_list = [500]
@@ -239,14 +248,18 @@ def build_experiments():
             "uav_distance_ratio": ratio,
 
             # "split_ratio": (15, 54, 30),  # 分别对应空中air，地面节点以及客户节点数量
-            "split_ratio": (25, 84, 50),  # 分别对应空中air，地面节点以及客户节点数量
+            "split_ratio": (25, 89, 50),  # 分别对应空中air，地面节点以及客户节点数量
 
             "resume_if_exists": True,
         }
         # 16组破坏/修复算子组合
         for d_op in DESTROY_OPS:
             for r_op in REPAIR_OPS:
-                op_tag = f"D-{d_op}_R-{r_op}"
+                # 1. 获取缩写 (如果没有匹配到，就取前3个字母)
+                d_short = OP_ABBR.get(d_op, d_op[:3])
+                r_short = OP_ABBR.get(r_op, r_op[:3])
+                # op_tag = f"D-{d_op}_R-{r_op}"
+                op_tag = f"{d_short}_{r_short}"
 
                 cfg2 = dict(cfg)
                 cfg2["destroy_op"] = d_op
@@ -258,7 +271,6 @@ def build_experiments():
                 cfg2["problem_name"] = f"{cfg2['problem_name']}__{op_tag}"
 
                 experiments.append(cfg2)
-
         # experiments.append(cfg)
 
     return experiments
