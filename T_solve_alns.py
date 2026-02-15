@@ -39,7 +39,7 @@ class T_IncrementalALNS:
     N_zero, N_plus, A_total, A_cvtp, A_vtp, 
 		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
         ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
-        iter, max_iterations, max_runtime=60, seed=None):
+        iter, max_iterations, max_runtime=60, seed=None, algo_seed=None):
         self.node = node
         self.DEPOT_nodeID = DEPOT_nodeID
         self.V = V
@@ -102,6 +102,11 @@ class T_IncrementalALNS:
         self.sigma1 = self.reward_scores.get('new_best', 10)
         self.sigma2 = self.reward_scores.get('better_than_current', 5)
         self.sigma3 = 0   # 贪婪不接受差解，所以一般为0
+        if algo_seed is None:
+            algo_seed = 42
+        self.rng = rnd.default_rng(algo_seed)
+        random.seed(algo_seed)
+        np.random.seed(algo_seed)
         
     def base_drone_assigment(self):
         """
