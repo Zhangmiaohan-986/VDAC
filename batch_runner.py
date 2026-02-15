@@ -42,8 +42,10 @@ from generate_test_problems import *
 startTime 		= time.time()
 
 METERS_PER_MILE = 1609.34
-REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
-MAX_PARALLEL = 5 # 最大并行任务数
+# REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
+# MAX_PARALLEL = 5 # 最大并行任务数
+REPEAT_PER_TASK = 1  # 每个任务跑多少次取平均
+MAX_PARALLEL = 1 # 最大并行任务数
 ALGO_SEED_BASE = 10000
 OP_ABBR = {
     "destroy_random_removal": "RandRm",
@@ -170,13 +172,45 @@ def build_experiments():
     # uav_distance_ratios = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
     # uav_distances = [25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25]
 
-    # 消融实验配置配比
-    num_points_list = [165]
-    truck_list = [6]
-    uav_list = [12]
+    # # 消融实验配置配比,50客户节点情况下
+    # num_points_list = [165]
+    # truck_list = [6]
+    # uav_list = [12]
+    # iter_list = [500]
+    # seeds = [6]
+    
+    # # 消融实验配置配比,30客户节点情况下
+    # num_points_list = [100]
+    # truck_list = [4]
+    # uav_list = [8]
+    # iter_list = [500]
+    # seeds = [6]
+    # # loop_iter_list = [10,10,10,10,10,10,10,10]
+    # loop_iter_list = [1]
+    # target_ranges = [None]
+    # coord_scales = [1.0]
+    # Z_coords = [0.05]
+    # uav_distance_ratios = [None]
+    # uav_distances = [20]
+    # 消融实验配置配比,15客户节点情况下
+    # num_points_list = [60]
+    # truck_list = [2]
+    # uav_list = [4]
+    # iter_list = [500]
+    # seeds = [6]
+    # # loop_iter_list = [10,10,10,10,10,10,10,10]
+    # loop_iter_list = [1]
+    # target_ranges = [None]
+    # coord_scales = [1.0]
+    # Z_coords = [0.05]
+    # uav_distance_ratios = [None]
+    # uav_distances = [20]
+    # 消融实验配置配比,100客户节点情况下
+    num_points_list = [335]
+    truck_list = [8]
+    uav_list = [16]
     iter_list = [500]
     seeds = [6]
-    # loop_iter_list = [10,10,10,10,10,10,10,10]
     loop_iter_list = [1]
     target_ranges = [None]
     coord_scales = [1.0]
@@ -247,8 +281,12 @@ def build_experiments():
             "uav_distance": ud,
             "uav_distance_ratio": ratio,
 
-            # "split_ratio": (15, 54, 30),  # 分别对应空中air，地面节点以及客户节点数量
-            "split_ratio": (25, 89, 50),  # 分别对应空中air，地面节点以及客户节点数量
+            # "split_ratio": (15, 54, 30),  # 分别对应空中air，地面节点以及客户节点数量。 对应30客户节点情况下
+            # "split_ratio": (25, 89, 50),  # 分别对应空中air，地面节点以及客户节点数量。对应50客户节点情况下
+            # "split_ratio": (10, 34, 15),  # 分别对应空中air，地面节点以及客户节点数量。对应15客户节点情况下
+            "split_ratio": (35, 199, 100),  # 分别对应空中air，地面节点以及客户节点数量。对应100客户节点情况下
+
+
 
             "resume_if_exists": True,
         }

@@ -31,7 +31,8 @@ def generate_points(num_points,seed):
     df_R201[numeric_cols] = df_R201[numeric_cols].apply(pd.to_numeric, errors='coerce')
     start_pos = (float(df_R201.at[0, 'XCOORD.']), float(df_R201.at[0, 'YCOORD.']))
     # if num_points <= 100:
-    if num_points <= 300:
+    print("客户节点数量:", num_points)
+    if num_points <= 500:
         # position_points_sample = df_R201.sample(n=num_points,random_state=seed)
         # position_points_sample = position_points_sample.sort_index()
         # return position_points_sample, start_pos

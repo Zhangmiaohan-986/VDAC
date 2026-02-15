@@ -1,0 +1,108 @@
+==== ALNS Result Summary ====
+instance_name: case_4UAV_2Truck__CompRm_KNNReg_exp11_rep8_algo21008_0
+best_objective: 1243.6271186054894
+elapsed_time: 234.7243185043335
+best_global_max_time: 7.709273627023222
+len_y_cost: 501
+len_y_best: 13
+len_win_cost: 498
+len_uav_route_cost: 498
+len_vehicle_route_cost: 498
+strategy_weights:
+{
+  "structural": 2.2579813035737857,
+  "internal": 2.006637578830336
+}
+
+operator_weights:
+{
+  "structural": {
+    "destroy": {
+      "destroy_comprehensive_removal": 2.257191613395096
+    },
+    "repair": {
+      "repair_kNN_regret": 2.257191613395096
+    }
+  },
+  "internal": {
+    "destroy": {
+      "destroy_comprehensive_removal": 2.006637578830336
+    },
+    "repair": {
+      "repair_kNN_regret": 2.006637578830336
+    }
+  }
+}
+
+best_vehicle_max_times:
+{
+  "1": 7.709273627023222,
+  "2": 0.0
+}
+
+best_arrive_time_brief:
+{
+  "num_vehicles": 2,
+  "total_records": 4
+}
+
+best_window_total_cost: 781.0707009840962
+best_total_cost_dict:
+{
+  "44": 27.28956064560718,
+  "45": 63.90165945202389,
+  "46": 45.58370674716419,
+  "47": 67.21341364777129,
+  "48": 26.88076903724022,
+  "49": 49.27290331165487,
+  "50": 61.05371764590812,
+  "51": 65.28678864078918,
+  "52": 45.43347916309826,
+  "53": 58.87847034211528,
+  "54": 74.15723234124083,
+  "55": 27.37824727533122,
+  "56": 55.292934971839614,
+  "57": 57.710022964660205,
+  "58": 55.73779479765182
+}
+
+best_uav_tw_violation_cost:
+{
+  "44": 5.377781234795691,
+  "55": 2.100726465978866,
+  "50": 47.222341587538295,
+  "46": 23.514357619302398,
+  "48": 8.618511288941669,
+  "52": 0.2958466826507733,
+  "49": 22.155757436693186,
+  "58": 38.73249387857312,
+  "56": 37.26198307699431,
+  "54": 59.9346317790115,
+  "57": 23.3788384575426,
+  "51": 7.503532018554626,
+  "45": 22.591662614142606,
+  "53": 11.909686926657592,
+  "47": 34.80902027574178
+}
+
+best_state_total_cost_attr: 1404.2238160214454
+best_final_uav_cost: 600.5248549044522
+best_final_objective: 1227.2712475386707
+best_final_win_cost: 294.29213681996805
+best_total_win_cost: 894.8169917244204
+best_final_vehicle_route_cost: 332.45425581425025
+best_final_state_total_cost_attr: 1404.2238160214454
+best_final_vehicle_max_times:
+{
+  "1": 11.547017500943241,
+  "2": 0.0
+}
+
+best_final_global_max_time: 11.547017500943241
+len_final_uav_cost: 497
+len_final_total_list: 498
+len_final_win_cost: 497
+len_final_total_objective: 498
+len_final_vehicle_route_cost: 498
+len_work_time: 498
+len_final_work_time: 498
