@@ -528,7 +528,12 @@ class IncrementalALNS:
         self.problemName = problemName # 获得问题名称
         # self.max_iterations = max_iterations
         self.max_iterations = max_iterations
-        self.temperature = max_iterations
+        # self.temperature = max_iterations
+        # initial_delta_estimate = best_objective * 0.05   # 估计一个典型的成本差值
+        # initial_accept_prob = 0.20                       # 期望初始接受率
+        # self.temperature = -initial_delta_estimate / np.log(initial_accept_prob)
+        # self.initial_temperature = self.temperature
+        # print(f"自适应初始温度: {self.temperature:.4f} (基于初始成本 {best_objective:.2f})")
         self.initial_temperature = max_iterations
         # self.temperature = 500.0
         # self.initial_temperature = 500.0
@@ -1968,7 +1973,7 @@ class IncrementalALNS:
                 global_best_moves.sort(key=lambda x: x['total_cost'])
                 # 2. 使用加权选择构建执行队列
                 # 这比 random.shuffle 靠谱，因为它尊重了成本的物理意义
-                execution_queue = weighted_choice_sub(global_best_moves, rcs_k)
+                execution_queue = self.weighted_choice_sub(global_best_moves, rcs_k)
                 
                 # 下面是你原有的执行逻辑，直接复用
                 success = False
@@ -2187,7 +2192,62 @@ class IncrementalALNS:
         print(f"修复后总成本: {repaired_state._total_cost}")
         
         return repaired_state, insert_plan
+    def weighted_choice_sub(self, candidates, k_limit):
+        """
+        从候选列表中，基于排名权重选择一个方案。
+        排名越靠前（成本越低），权重越大。
+        """
+        if not candidates:
+            return None, []
+            
+        # 1. 截断：只看前 K 个
+        limit = min(len(candidates), k_limit)
+        pool = candidates[:limit]
+        backup = candidates[limit:] # 备选池
+        
+        # 2. 计算权重：使用简单的线性排名权重或指数权重
+        # 方案 A (线性): 排名第1权重为K, 第2为K-1...
+        # weights = [limit - i for i in range(limit)]
+        
+        # 方案 B (指数 - 推荐): 强化头部效应，比如 [1.0, 0.5, 0.25...]
+        # 这样能保证大概率选最优，小概率选次优，非常靠谱
+        weights = [math.exp(-0.5 * i) for i in range(limit)]
+        
+        # 3. 归一化并选择
+        total_w = sum(weights)
+        probs = [w / total_w for w in weights]
+        
+        # # 按概率随机选择一个索引
+        # r = random.random()
+        # cumulative_p = 0.0
+        # selected_index = 0
+        # for i, p in enumerate(probs):
+        #     cumulative_p += p
+        #     if r <= cumulative_p:
+        #         selected_index = i
+        #         break
+        r = float(self.rng.random())
+        cumulative_p = 0.0
+        selected_index = 0
+        for i, p in enumerate(probs):
+            cumulative_p += p
+            if r <= cumulative_p:
+                selected_index = i
+                break
 
+        # 4. 构建尝试队列
+        # 队列顺序：[被选中的那个] + [RCS里剩下的(按原序)] + [备选池]
+        # 这样如果"幸运儿"失败了，我们立刻回退到最稳妥的贪婪顺序
+        
+        chosen_one = pool[selected_index]
+        
+        # 构建剩余的 RCS 成员 (排除被选中的)
+        remaining_pool = [c for i, c in enumerate(pool) if i != selected_index]
+        
+        # 最终执行队列
+        execution_queue = [chosen_one] + remaining_pool + backup
+        
+        return execution_queue
     def _find_k_best_vehicle_for_new_vtp(self, vtp_new, state, k):
         """
         (VTP-Centric 辅助函数)
@@ -5262,6 +5322,11 @@ class IncrementalALNS:
         best_objective = current_state.destroyed_node_cost
         # current_state.vehicle_routes = [route.copy() for route in current_state.rm_empty_vehicle_route]
         current_objective = best_objective
+        initial_delta_estimate = best_objective * 0.05   # 估计一个典型的成本差值
+        initial_accept_prob = 0.20                       # 期望初始接受率
+        self.temperature = -initial_delta_estimate / np.log(initial_accept_prob)
+        self.initial_temperature = self.temperature
+        print(f"自适应初始温度: {self.temperature:.4f} (基于初始成本 {best_objective:.2f})")
         # 保存初始当前状态
         y_best.append(best_objective)
         y_cost.append(best_objective)
@@ -5291,7 +5356,10 @@ class IncrementalALNS:
         # best_final_state = current_state.fast_copy()
         # 3. 初始化模拟退火和双重衰减奖励模型
         #    【重要建议】: 对于更复杂的搜索，建议增加迭代次数并减缓降温速率
-        cooling_rate = 0.985  # 缓慢降温以进行更充分的探索
+        T_final = 0.01
+        cooling_rate = (T_final / self.temperature) ** (1.0 / self.max_iterations)
+        cooling_rate = max(0.95, min(0.9999, cooling_rate))  # 限制在合理范围内
+        print(f"自适应降温系数: {cooling_rate:.6f}")
         print(f"开始ALNS求解，初始成本: {best_objective:.2f}")
         # self.max_iterations = 100
 
@@ -5511,23 +5579,52 @@ class IncrementalALNS:
             # =================================================================
             # 步骤 2.4: 学习与进化 - 更新两层权重
             # =================================================================
-            if score > 0: # 只有有价值的行动才参与学习
-                # 2.4.1 更新顶层的策略权重
+            # if score > 0: # 只有有价值的行动才参与学习
+            #     # 2.4.1 更新顶层的策略权重
+            #     self.strategy_weights[chosen_strategy] = \
+            #         (1 - self.reaction_factor) * self.strategy_weights[chosen_strategy] + \
+            #         self.reaction_factor * score
+
+            #     # 2.4.2 更新第二层的、具体的算子权重
+            #     # 更新破坏算子
+            #     self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] = \
+            #         (1 - self.reaction_factor) * self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] + \
+            #         self.reaction_factor * score
+                
+            #     # 更新修复算子
+            #     self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = \
+            #         (1 - self.reaction_factor) * self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] + \
+            #         self.reaction_factor * score
+            # 步骤 2.4: 学习与进化 - 更新两层权重
+            if score > 0:
+                # 奖励：论文公式指数加权平均
                 self.strategy_weights[chosen_strategy] = \
                     (1 - self.reaction_factor) * self.strategy_weights[chosen_strategy] + \
                     self.reaction_factor * score
 
-                # 2.4.2 更新第二层的、具体的算子权重
-                # 更新破坏算子
                 self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] = \
                     (1 - self.reaction_factor) * self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] + \
                     self.reaction_factor * score
                 
-                # 更新修复算子
                 self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = \
                     (1 - self.reaction_factor) * self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] + \
                     self.reaction_factor * score
-
+            else:
+                # ← 新增：拒绝时施加乘法衰减惩罚（decay=0.95，不会崩到0）
+                decay = 0.95
+                self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] = max(
+                    0.1,
+                    self.operator_weights[chosen_strategy]['destroy'][chosen_destroy_op_name] * decay
+                )
+                self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] = max(
+                    0.1,
+                    self.operator_weights[chosen_strategy]['repair'][chosen_repair_op_name] * decay
+                )
+                # 策略层级也轻微衰减
+                self.strategy_weights[chosen_strategy] = max(
+                    0.1,
+                    self.strategy_weights[chosen_strategy] * decay
+                )
             # =================================================================
             # 步骤 2.5: 更新状态并进入下一次迭代
             # =================================================================
@@ -5634,7 +5731,7 @@ class IncrementalALNS:
 
         # 保存运行数据
         save_alns_results(
-            instance_name=self.problemName + "_" + str(self.iter),  # 换成你实际的算例名
+            instance_name=self.problemName + "HA" + str(self.iter),  # 换成你实际的算例名
             y_best=y_best,
             y_cost=y_cost,
             win_cost=win_cost,
@@ -5879,8 +5976,8 @@ class IncrementalALNS:
                         from task_data import deep_remove_vehicle_task
                         need_to_remove_tasks = find_chain_tasks(assignment, new_state.customer_plan, new_state.vehicle_routes, vehicle_task_data)
                         for chain_customer, chain_assignment in need_to_remove_tasks:
-                            if 10 not in vehicle_task_data[1][112].drone_list:
-                                print(f'10 not in vehicle_task_data[1][112].drone_list')
+                            # if 10 not in vehicle_task_data[1][112].drone_list:
+                            #     print(f'10 not in vehicle_task_data[1][112].drone_list')
                             if chain_customer in new_state.customer_plan:
                                 chain_uav_id, chain_launch_node, chain_customer_node, chain_recovery_node, chain_launch_vehicle, chain_recovery_vehicle = chain_assignment
                                 
@@ -8334,64 +8431,81 @@ def solve_with_DA_I_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, ua
     
     return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
 
+from DAI_solve_alns import DAI_IncrementalALNS
+def solve_with_DAI_alns(initial_solution, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter, max_iterations, max_runtime=60, use_incremental=True, seed=None, algo_seed=None):
+    if use_incremental:
+        # 使用增量式ALNS
+        DAI_alns_solver = DAI_IncrementalALNS(node, DEPOT_nodeID, V, T, vehicle, uav_travel, 
+        veh_distance, veh_travel, N, N_zero, N_plus, A_total, A_cvtp, A_vtp, 
+		A_aerial_relay_node, G_air, G_ground,air_matrix, ground_matrix, air_node_types, 
+        ground_node_types, A_c, xeee, customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+        iter=iter, max_iterations=max_iterations, max_runtime=max_runtime, seed=seed, algo_seed=algo_seed)
+    
+    # 使用ALNS求解
+    best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time = DAI_alns_solver.solve(initial_solution)
+    
+    return best_state, best_final_state, best_objective, best_final_objective, best_final_uav_cost, best_final_win_cost, best_total_win_cost, best_final_global_max_time, best_global_max_time, best_window_total_cost, best_total_uav_tw_violation_cost, best_total_vehicle_cost, elapsed_time, win_cost, uav_route_cost, vehicle_route_cost, final_uav_cost, final_total_list, final_win_cost, final_total_objective, y_cost, y_best, work_time, final_work_time
+
 
 # --- 核心：定义概率选择函数 ---
-def weighted_choice_sub(candidates, k_limit):
-    """
-    从候选列表中，基于排名权重选择一个方案。
-    排名越靠前（成本越低），权重越大。
-    """
-    if not candidates:
-        return None, []
+# def weighted_choice_sub(candidates, k_limit):
+#     """
+#     从候选列表中，基于排名权重选择一个方案。
+#     排名越靠前（成本越低），权重越大。
+#     """
+#     if not candidates:
+#         return None, []
         
-    # 1. 截断：只看前 K 个
-    limit = min(len(candidates), k_limit)
-    pool = candidates[:limit]
-    backup = candidates[limit:] # 备选池
+#     # 1. 截断：只看前 K 个
+#     limit = min(len(candidates), k_limit)
+#     pool = candidates[:limit]
+#     backup = candidates[limit:] # 备选池
     
-    # 2. 计算权重：使用简单的线性排名权重或指数权重
-    # 方案 A (线性): 排名第1权重为K, 第2为K-1...
-    # weights = [limit - i for i in range(limit)]
+#     # 2. 计算权重：使用简单的线性排名权重或指数权重
+#     # 方案 A (线性): 排名第1权重为K, 第2为K-1...
+#     # weights = [limit - i for i in range(limit)]
     
-    # 方案 B (指数 - 推荐): 强化头部效应，比如 [1.0, 0.5, 0.25...]
-    # 这样能保证大概率选最优，小概率选次优，非常靠谱
-    weights = [math.exp(-0.5 * i) for i in range(limit)]
+#     # 方案 B (指数 - 推荐): 强化头部效应，比如 [1.0, 0.5, 0.25...]
+#     # 这样能保证大概率选最优，小概率选次优，非常靠谱
+#     weights = [math.exp(-0.5 * i) for i in range(limit)]
     
-    # 3. 归一化并选择
-    total_w = sum(weights)
-    probs = [w / total_w for w in weights]
+#     # 3. 归一化并选择
+#     total_w = sum(weights)
+#     probs = [w / total_w for w in weights]
     
-    # # 按概率随机选择一个索引
-    # r = random.random()
-    # cumulative_p = 0.0
-    # selected_index = 0
-    # for i, p in enumerate(probs):
-    #     cumulative_p += p
-    #     if r <= cumulative_p:
-    #         selected_index = i
-    #         break
-    r = float(self.rng.random())
-    cumulative_p = 0.0
-    selected_index = 0
-    for i, p in enumerate(probs):
-        cumulative_p += p
-        if r <= cumulative_p:
-            selected_index = i
-            break
+#     # # 按概率随机选择一个索引
+#     # r = random.random()
+#     # cumulative_p = 0.0
+#     # selected_index = 0
+#     # for i, p in enumerate(probs):
+#     #     cumulative_p += p
+#     #     if r <= cumulative_p:
+#     #         selected_index = i
+#     #         break
+#     r = float(self.rng.random())
+#     cumulative_p = 0.0
+#     selected_index = 0
+#     for i, p in enumerate(probs):
+#         cumulative_p += p
+#         if r <= cumulative_p:
+#             selected_index = i
+#             break
 
-    # 4. 构建尝试队列
-    # 队列顺序：[被选中的那个] + [RCS里剩下的(按原序)] + [备选池]
-    # 这样如果"幸运儿"失败了，我们立刻回退到最稳妥的贪婪顺序
+#     # 4. 构建尝试队列
+#     # 队列顺序：[被选中的那个] + [RCS里剩下的(按原序)] + [备选池]
+#     # 这样如果"幸运儿"失败了，我们立刻回退到最稳妥的贪婪顺序
     
-    chosen_one = pool[selected_index]
+#     chosen_one = pool[selected_index]
     
-    # 构建剩余的 RCS 成员 (排除被选中的)
-    remaining_pool = [c for i, c in enumerate(pool) if i != selected_index]
+#     # 构建剩余的 RCS 成员 (排除被选中的)
+#     remaining_pool = [c for i, c in enumerate(pool) if i != selected_index]
     
-    # 最终执行队列
-    execution_queue = [chosen_one] + remaining_pool + backup
+#     # 最终执行队列
+#     execution_queue = [chosen_one] + remaining_pool + backup
     
-    return execution_queue
+#     return execution_queue
 
 # def find_chain_tasks(assignment, customer_plan, vehicle_routes, vehicle_task_data):
 #     """

@@ -278,7 +278,7 @@ def rolling_time_cbs(
                 # 这里不立刻fatal，交给下一个FIX（延后发射）处理
                 break
 
-            print(f"Warning: CBS failed for batch size={len(batch_try)}. Shrinking batch and retrying...")
+            # print(f"Warning: CBS failed for batch size={len(batch_try)}. Shrinking batch and retrying...")
             batch_try = batch_try[: max(1, len(batch_try)//2)]
             timeout_s = max(15, int(timeout_s * 0.7))  # 可选：越小批次给更短超时
         if batch_result is None:
@@ -313,11 +313,11 @@ def rolling_time_cbs(
             if round(launch_time, decimals) != round(best_uav_plan[mission_tuple]['launch_time'], decimals):
                 best_uav_plan[mission_tuple]['launch_time'] = launch_time
                 update_launch_task[mission_tuple] = launch_time
-                print('发射时间产生改变。')
+                # print('发射时间产生改变。')
             if round(recovery_time, decimals) != round(best_uav_plan[mission_tuple]['recovery_time'], decimals):
                 best_uav_plan[mission_tuple]['recovery_time'] = recovery_time
                 update_recovery_task[mission_tuple] = recovery_time
-                print('回收时间产生改变。')
+                # print('回收时间产生改变。')
             work_time = recovery_time - launch_time
             best_uav_plan[mission_tuple]['time'] = work_time  # 从发射到服务到降落的整体无人机任务时间
             uav_route_cost, uav_time_cost = update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground, mission_tuple) 
@@ -704,7 +704,7 @@ class Time_cbs_Batch_Solver:
                 heapq.heappush(open_list, (child_node['cost'], node_id_counter, child_node))
                 node_id_counter += 1
 
-        print("CBS求解失败，未找到解决方案。")
+        # print("CBS求解失败，未找到解决方案。")
         return None
         
     # =================================================
@@ -1064,8 +1064,8 @@ class Time_cbs_Batch_Solver:
                 round(adjusted_launch_time, 4))
             if key not in self._launch_delay_seen:
                 self._launch_delay_seen.add(key)
-                print(f"[CBS Launch Delay] Drone {drone_id} launch delayed from {mission_dict['launch_time']:.4f} "
-                    f"to {adjusted_launch_time:.4f} at node {launch_air_node}.")
+                # print(f"[CBS Launch Delay] Drone {drone_id} launch delayed from {mission_dict['launch_time']:.4f} "
+                    # f"to {adjusted_launch_time:.4f} at node {launch_air_node}.")
         # >>> FIX-C
         mission_dict['launch_time'] = adjusted_launch_time
 

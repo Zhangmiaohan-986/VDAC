@@ -97,11 +97,29 @@ class T_I_IncrementalALNS:
         self.destroy_weights = {op.__name__: 1.0 for op in self.destroy_operators}
         self.repair_weights  = {op.__name__: 1.0 for op in self.repair_operators}
 
+        # 与分段权重更新保持一致的学习率参数
+        self.reaction_factor = 0.5
+        # 与保存接口保持一致（单策略展开）
+        self.strategy_weights = {'single_layer': 1.0}
+        self.operator_weights = {
+            'single_layer': {
+                'destroy': dict(self.destroy_weights),
+                'repair': dict(self.repair_weights),
+            }
+        }
+
+        # 接受策略评分（传统ALNS三档，匹配当前贪婪接受逻辑）
+        self.reward_scores = {
+            'new_best': 10.0,
+            'better_than_current': 5.0,
+            'accepted_worse': 0.0,
+        }
+
         # 传统ALNS常用三档评分
         # new_best / better / accepted_worse(这里贪婪不会发生)
-        self.sigma1 = self.reward_scores.get('new_best', 10)
-        self.sigma2 = self.reward_scores.get('better_than_current', 5)
-        self.sigma3 = 0   # 贪婪不接受差解，所以一般为0
+        self.sigma1 = self.reward_scores.get('new_best', 10.0)
+        self.sigma2 = self.reward_scores.get('better_than_current', 5.0)
+        self.sigma3 = self.reward_scores.get('accepted_worse', 0.0)
         if algo_seed is None:
             algo_seed = 42
         self.rng = rnd.default_rng(algo_seed)
@@ -4410,171 +4428,6 @@ class T_I_IncrementalALNS:
             #     print(f"警告：客户点 {customer} 的可行插入位置过少 ({total_positions} 个)，可能影响优化效果")
 
             return all_insert_position
-
-    # def get_all_insert_position(self, vehicle_route, vehicle_task_data, customer, vehicle_arrive_time):
-    #     """
-    #     获取所有可行的插入位置，通过cluster_vtp_dict限制解空间以提高效率
-        
-    #     Args:
-    #         vehicle_route: 车辆路线
-    #         vehicle_task_data: 车辆任务数据
-    #         customer: 客户点ID
-    #         vehicle_arrive_time: 车辆到达时间
-            
-    #     Returns:
-    #         dict: {drone_id: [(launch_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id), ...]}
-    #     """
-    #     all_insert_position = {drone_id: [] for drone_id in self.V}
-        
-    #     # 获取该客户点的最近VTP节点集合
-    #     customer_vtp_candidates = self.map_cluster_vtp_dict[customer]
-    #     # print(f"客户点 {customer} 的VTP候选节点: {customer_vtp_candidates[:5]}...")  # 只显示前5个
-
-    #     for drone_id in self.V:
-    #         for launch_vehicle_idx, route in enumerate(vehicle_route):
-    #             launch_vehicle_id = launch_vehicle_idx + 1
-    #             n = len(route)
-    #             i = 1
-    #             while i < n - 1:
-    #                 launch_node = route[i]
-    #                 # 只在drone_list中才可发射
-    #                 if drone_id not in vehicle_task_data[launch_vehicle_id][launch_node].drone_list:
-    #                     i += 1
-    #                     continue
-                    
-    #                 # 检查发射节点是否在客户点的VTP候选集合中（放宽限制）
-    #                 if launch_node not in customer_vtp_candidates:
-    #                     # 如果不在候选集合中，仍然允许，但降低优先级
-    #                     pass
-                    
-    #                 # 找连续片段
-    #                 j = i + 1
-    #                 while j < n - 1:
-    #                     node = route[j]
-    #                     in_drone_list = drone_id in vehicle_task_data[launch_vehicle_id][node].drone_list
-    #                     in_launch_list = drone_id in vehicle_task_data[launch_vehicle_id][node].launch_drone_list
-    #                     if not in_drone_list:
-    #                         if in_launch_list:
-    #                             # 片段终点包含该节点
-    #                             j += 1
-    #                         break
-    #                     j += 1
-    #                 # 现在[i, j)是连续片段，j可能因为break提前终止
-    #                 # 片段终点为j-1，如果j-1节点是发射点（即不在drone_list但在launch_drone_list），包含它
-    #                 end = j
-    #                 if j < n - 1:
-    #                     node = route[j]
-    #                     if drone_id not in vehicle_task_data[launch_vehicle_id][node].drone_list and \
-    #                     drone_id in vehicle_task_data[launch_vehicle_id][node].launch_drone_list:
-    #                         end = j + 1  # 包含发射点
-                    
-    #                 # 同车插入：寻找所有可能的回收节点
-    #                 for k in range(i + 1, n - 1):
-    #                     recovery_node = route[k]
-                        
-    #                     # 检查回收节点是否支持该无人机
-    #                     if drone_id not in vehicle_task_data[launch_vehicle_id][recovery_node].drone_list:
-    #                         continue
-                        
-    #                     # 检查发射节点和回收节点之间是否存在冲突
-    #                     # 规则：回收节点前(不含回收节点)，发射节点后不能存在该无人机的发射任务
-    #                     launch_idx = i
-    #                     recovery_idx = k
-                        
-    #                     # 检查发射节点之后到回收节点之前是否有该无人机的发射任务
-    #                     has_conflict = False
-    #                     for m in range(launch_idx + 1, recovery_idx):
-    #                         if drone_id in vehicle_task_data[launch_vehicle_id][route[m]].launch_drone_list:
-    #                             has_conflict = True
-    #                             break
-                        
-    #                     if has_conflict:
-    #                         # print(f"[DEBUG] 同车插入跳过：无人机 {drone_id} 从节点 {launch_node} 到节点 {recovery_node} 之间存在发射任务冲突")
-    #                         continue
-                        
-    #                     # 检查回收节点是否在客户点的VTP候选集合中（放宽限制）
-    #                     # 无论是否在候选集合中，都允许插入，但可以标记优先级
-    #                     all_insert_position[drone_id].append(
-    #                         (launch_node, customer, recovery_node, launch_vehicle_id, launch_vehicle_id)
-    #                     )
-    #                 i = j
-                
-    #             # 跨车查找：检查发射节点是否在VTP候选集合中
-    #             for i in range(1, n - 1):
-    #                 launch_node = route[i]
-    #                 if drone_id not in vehicle_task_data[launch_vehicle_id][launch_node].drone_list:
-    #                     continue
-                    
-    #                 # 检查发射节点是否在客户点的VTP候选集合中（放宽限制）
-    #                 if launch_node not in customer_vtp_candidates:
-    #                     # 如果不在候选集合中，仍然允许，但降低优先级
-    #                     pass
-                    
-    #                 launch_time = vehicle_arrive_time[launch_vehicle_id][launch_node]
-    #                 for recovery_vehicle_idx, other_route in enumerate(vehicle_route):
-    #                     recovery_vehicle_id = recovery_vehicle_idx + 1
-    #                     if recovery_vehicle_id == launch_vehicle_id:
-    #                         continue
-    #                     for recovery_node in other_route[1:-1]:
-    #                         if drone_id not in vehicle_task_data[recovery_vehicle_id][recovery_node].drone_list:
-    #                             continue
-                            
-    #                         # 检查回收节点是否在客户点的VTP候选集合中（放宽限制）
-    #                         if recovery_node not in customer_vtp_candidates:
-    #                             # 如果不在候选集合中，仍然允许，但降低优先级
-    #                             pass
-                            
-    #                         # 新增：排除发射点和回收点完全相同的情况
-    #                         # if launch_vehicle_id == recovery_vehicle_id and launch_node == recovery_node:
-    #                         if launch_vehicle_id == recovery_vehicle_id:
-    #                             continue  # 跨车时也不允许同节点
-    #                         if launch_node == recovery_node:
-    #                             continue  # 跨车时也不允许同节点
-    #                         recovery_time = vehicle_arrive_time[recovery_vehicle_id][recovery_node]
-    #                         if recovery_time <= launch_time:
-    #                             continue
-    #                         idx = other_route.index(recovery_node)
-    #                         conflict = False
-                            
-    #                         # 检查回收车辆路线中的冲突（放宽限制）
-    #                         # for m in range(1, idx):
-    #                         #     if drone_id in vehicle_task_data[recovery_vehicle_id][other_route[m]].launch_drone_list:
-    #                         #         # 只检查发射冲突，允许回收冲突
-    #                         #         conflict = True
-    #                         #         break
-    #                         # for m in range(idx + 1, len(other_route) - 1):
-    #                         #     if drone_id in vehicle_task_data[recovery_vehicle_id][other_route[m]].launch_drone_list:
-    #                         #         conflict = True
-    #                         #         break
-                            
-    #                         # 检查发射车辆路线中的冲突（放宽限制）
-    #                         launch_idx = route.index(launch_node)
-    #                         for m in range(launch_idx + 1, len(route) - 1):
-    #                             if drone_id in vehicle_task_data[launch_vehicle_id][route[m]].launch_drone_list:
-    #                                 # 只检查发射冲突，允许回收冲突
-    #                                 conflict = True
-    #                                 # print(f"[DEBUG] 跨车插入冲突：无人机 {drone_id} 从车辆 {launch_vehicle_id} 节点 {launch_node} 发射到车辆 {recovery_vehicle_id} 节点 {recovery_node}，但车辆 {launch_vehicle_id} 的节点 {route[m]} 还有该无人机的发射任务")
-    #                                 break
-                            
-    #                         if not conflict:
-    #                             all_insert_position[drone_id].append(
-    #                                 (launch_node, customer, recovery_node, launch_vehicle_id, recovery_vehicle_id)
-    #                             )
-        
-    #     # 统计每个无人机的可行插入位置数量
-    #     total_positions = 0
-    #     for drone_id in self.V:
-    #         positions_count = len(all_insert_position[drone_id])
-    #         total_positions += positions_count
-    #         # if positions_count > 0:
-    #             # print(f"无人机 {drone_id} 有 {positions_count} 个可行插入位置")
-        
-    #     # print(f"客户点 {customer} 总共有 {total_positions} 个可行插入位置")
-        
-    #     # 如果插入位置太少，输出警告
-    #     if total_positions < 5:
-    #         print(f"警告：客户点 {customer} 的可行插入位置过少 ({total_positions} 个)，可能影响优化效果")
-    #     return all_insert_position
     # 计算不同发射回收点的成本状况
     def calculate_multiopt_cost(self, repair_state, best_scheme):
         """
@@ -4719,8 +4572,22 @@ class T_I_IncrementalALNS:
         final_vehicle_route_cost.append(final_total_objective_value - final_window_total_cost)  # 记录考虑空中避障场景下的车辆路径规划成本
         best_final_objective = final_total_objective_value
         final_current_objective = final_total_objective_value
+        best_final_objective = final_total_objective_value
 
+        final_current_objective = final_total_objective_value
+
+        best_final_state = current_state.fast_copy()
+        final_best_objective = final_total_objective_value
+        best_final_state.final_best_objective = final_best_objective
+        best_final_uav_cost = sum(current_state.final_uav_cost.values())
+        best_final_objective = final_best_objective
+        best_final_win_cost = sum(final_uav_tw_violation_cost.values())
+        best_final_vehicle_max_times = final_vehicle_max_times
+        best_final_global_max_time = final_global_max_time
+        best_total_win_cost = final_window_total_cost
+        best_final_vehicle_route_cost = final_total_objective_value - final_window_total_cost
         best_state = current_state.fast_copy()
+        
         best_objective = current_state.destroyed_node_cost
         # current_state.vehicle_routes = [route.copy() for route in current_state.rm_empty_vehicle_route]
         current_objective = best_objective
@@ -4961,7 +4828,7 @@ class T_I_IncrementalALNS:
 
         # 保存运行数据
         save_alns_results(
-            instance_name=self.problemName + str('T_I_alns') + "_" + str(self.iter),  # 换成你实际的算例名
+            instance_name=self.problemName + str('TI') + "_" + str(self.iter),  # 换成你实际的算例名
             y_best=y_best,
             y_cost=y_cost,
             win_cost=win_cost,

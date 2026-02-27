@@ -89,17 +89,20 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
     # input_filename = "my_special_result_20num_3v_6d_100n"
     # input_filename = "my_special_result_30num_3v_6d_100n"
     # input_filename = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-    input_filename = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
+    input_filename = f"com_r_{len(A_c)}cust_{vehicle_num}v_{uav_num}d_{points_num}n"
     # save_dir = r"VDAC\saved_solutions"
     # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\saved_solutions"
-    save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    # save_dir = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+    save_dir = r"D/Users/zhangmiaohan/猫咪存储文件/maomi_github/VDAC/saved_solutions"
+
     os.makedirs(save_dir, exist_ok=True)
     saved_file_path = find_saved_solution_file(save_dir, input_filename)
 
     if saved_file_path is None:
         # 生成多个候选解
         # num_solutions = 20  # 生成5个候选解
-        num_solutions = 10  # 生成30个候选解
+        # num_solutions = 10  # 生成30个候选解
+        num_solutions = 1  # 考虑到100节点生成多个可行解计算时间过长，因此采用100节点进行处理
         air_vtp_solutions, vehicle_candidate_solutions, total_important_vtps = generator.generate_diverse_solutions(num_solutions)# 该操作生成了多种不同样的车辆路线
         # best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_greedy_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)
         best_customer_plan, best_uav_plan, best_plan_cost, best_vehicle_route, vehicle_task_data, vehicle_arrival_time, best_total_important_vtps = generator.generate_uav_solutions(vehicle_candidate_solutions, vehicle_task_data, total_important_vtps)# 该任务生成不同的无人机路线任务
@@ -149,7 +152,7 @@ def initial_route(node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, v
         # 这里需要指定你之前保存的文件名
         # 使用自定义名称保存数据
         # custom_name = f"my_special_result_30num_{vehicle_num}v_{uav_num}d_{points_num}n"
-        custom_name = f"my_special_result_{len(A_c)}cust_num_{vehicle_num}v_{uav_num}d_{points_num}n"
+        custom_name = f"com_r_{len(A_c)}cust_{vehicle_num}v_{uav_num}d_{points_num}n"
 
         input_filename = save_input_data_with_name(input_data, custom_name)
         # input_filename = save_input_data(input_data)  # 替换为你实际保存的文件名

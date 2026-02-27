@@ -14,7 +14,8 @@ def generate_points(num_points,seed):
     # file_path_RC101 = r'/Volumes/Zhang/TRE-双层路网协同巡检调度优化/coding/tits_CMDVRP-CT/tits_CMDVRP-CT/map/RC101.txt'
     # file_path_R201 = r'VDAC\map_test\R201.txt'
     # file_path_RC101 = r'VDAC\map_test\RC101.txt'
-    file_path_R201 = r'VDAC\map_test\RC1_4_1.TXT'
+    file_path_R201 = r'/Users/zhangmiaohan/猫咪存储文件/maomi_github/VDAC/map_test/RC1_4_1.TXT'
+    # file_path_R201 = r'map_test\RC1_4_1.TXT'
 
     np.random.seed(seed)
     with open(file_path_R201, 'r') as file:
@@ -30,7 +31,8 @@ def generate_points(num_points,seed):
     df_R201[numeric_cols] = df_R201[numeric_cols].apply(pd.to_numeric, errors='coerce')
     start_pos = (float(df_R201.at[0, 'XCOORD.']), float(df_R201.at[0, 'YCOORD.']))
     # if num_points <= 100:
-    if num_points <= 300:
+    print("客户节点数量:", num_points)
+    if num_points <= 500:
         # position_points_sample = df_R201.sample(n=num_points,random_state=seed)
         # position_points_sample = position_points_sample.sort_index()
         # return position_points_sample, start_pos

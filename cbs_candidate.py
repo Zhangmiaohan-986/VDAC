@@ -275,11 +275,11 @@ def rolling_time_cbs(
             if round(launch_time, decimals) != round(best_uav_plan[mission_tuple]['launch_time'], decimals):
                 best_uav_plan[mission_tuple]['launch_time'] = launch_time
                 update_launch_task[mission_tuple] = launch_time
-                print('发射时间产生改变。')
+                # print('发射时间产生改变。')
             if round(recovery_time, decimals) != round(best_uav_plan[mission_tuple]['recovery_time'], decimals):
                 best_uav_plan[mission_tuple]['recovery_time'] = recovery_time
                 update_recovery_task[mission_tuple] = recovery_time
-                print('回收时间产生改变。')
+                # print('回收时间产生改变。')
             work_time = recovery_time - launch_time
             best_uav_plan[mission_tuple]['time'] = work_time  # 从发射到服务到降落的整体无人机任务时间
             uav_route_cost, uav_time_cost = update_uav_cost(node, route_list, work_time, vehicle, drone_id, G_air, G_ground, mission_tuple) 
@@ -551,7 +551,7 @@ class Time_cbs_Batch_Solver:
 
             if not current_node['collisions']:
                 # print(f"找到解决方案！成本: {current_node['cost']:.2f}，用时: {time.time() - start_time:.2f} 秒。")
-                print(f"找到解决方案！成本: {current_node['cost']:.2f}。")
+                # print(f"找到解决方案！成本: {current_node['cost']:.2f}。")
                 return current_node['paths']
 
             collision = current_node['collisions'][0]
@@ -1727,7 +1727,7 @@ class Time_cbs_Batch_Solver:
 
             if not current_node['collisions']:
                 # print(f"找到解决方案！成本: {current_node['cost']:.2f}，用时: {time.time() - start_time:.2f} 秒。")
-                print(f"找到解决方案！成本: {current_node['cost']:.2f}。")
+                # print(f"找到解决方案！成本: {current_node['cost']:.2f}。")
                 return current_node['paths']
 
             collision = current_node['collisions'][0]

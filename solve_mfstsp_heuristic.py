@@ -204,7 +204,9 @@ def solve_mfstsp_heuristic(
 
 	solveAlns = algorithm  # 此处改为算子情况
 	# 判断当前阶段任务是否有文件夹了，没有就建立D:\NKU\VDAC_PAP\VDAC\saved_solutions
-	ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	# ROOT_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任务研究\VDAC\saved_solutions"
+	ROOT_BASE_DIR = r"/Users/zhangmiaohan/猫咪存储文件/maomi_github/VDAC/saved_solutions"
+
 	# ROOT_BASE_DIR = r"D:\NKU\VDAC_PAP\VDAC\saved_solutions"
 	# SUMMARY_PARENT = f"{solveAlns}求解{numCustomers}客户节点结果汇总"
 	# SUMMARY_FOLDER = f"{numTrucks}车{numUAVs}机配送{numCustomers}节点任务汇总"
@@ -501,6 +503,7 @@ def solve_mfstsp_heuristic(
 			final_work_time_curve_list=A_I_alns_final_work_time,
 			)
 			print(f"A_I_ALNS_finished_{iter}_iterations")
+ 
 		elif algorithm == "DA_I_ALNS":  # 参考对应论文The drone-assisted simultaneous pickup and delivery problem with time windows
 			from fast_alns_solver import solve_with_DA_I_alns
 			DA_I_alns_initial_state = initial_state.fast_copy()
@@ -548,6 +551,54 @@ def solve_mfstsp_heuristic(
 			final_work_time_curve_list=DA_I_alns_final_work_time,
 			)
 			print(f"DA_I_ALNS_finished_{iter}_iterations")
+
+		elif algorithm == "DAI_ALNS":  # 参考对应论文The drone-assisted simultaneous pickup and delivery problem with time windows
+			from fast_alns_solver import solve_with_DAI_alns
+			DAI_alns_initial_state = initial_state.fast_copy()
+			# 使用传统增量式ALNS求解,输出最佳方案结果，并保存到文件中
+			(DAI_alns_best_state, DAI_alns_best_final_state, DAI_alns_best_objective, DAI_alns_best_final_objective, DAI_alns_best_final_uav_cost, 
+			DAI_alns_best_final_win_cost, DAI_alns_best_total_win_cost, DAI_alns_best_final_global_max_time, DAI_alns_best_global_max_time, DAI_alns_best_window_total_cost, 
+			DAI_alns_best_total_uav_tw_violation_cost, DAI_alns_best_total_vehicle_cost, DAI_alns_elapsed_time, DAI_alns_win_cost, DAI_alns_uav_route_cost, DAI_alns_vehicle_route_cost, 
+			DAI_alns_final_uav_cost, DAI_alns_final_total_list, DAI_alns_final_win_cost, DAI_alns_final_total_objective, DAI_alns_y_cost, DAI_alns_y_best, DAI_alns_work_time, 
+			DAI_alns_final_work_time) = solve_with_DAI_alns(
+				DAI_alns_initial_state, node, DEPOT_nodeID, V, T, vehicle, uav_travel, veh_distance, veh_travel,
+				N, N_zero, N_plus, A_total, A_cvtp, A_vtp,
+				A_aerial_relay_node, G_air, G_ground, air_matrix, ground_matrix,
+				air_node_types, ground_node_types, A_c, xeee,
+				customer_time_windows_h, early_arrival_cost, late_arrival_cost, problemName,
+				iter=iter, max_iterations=max_iterations, max_runtime=30, use_incremental=True, seed=seed, algo_seed=algo_seed
+			)
+			record_one_run(DAI_alns_best_state, DAI_alns_best_final_state, DAI_alns_best_objective, DAI_alns_best_final_objective, DAI_alns_best_final_uav_cost, 
+			results_all[algorithm],
+			# --- state（只存不导出）---
+			best_state_list=DAI_alns_best_state,
+			best_final_state_list=DAI_alns_best_final_state,
+			# --- 标量 ---
+			best_objective_list=DAI_alns_best_objective,
+			best_final_objective_list=DAI_alns_best_final_objective,
+			best_final_uav_cost_list=DAI_alns_best_final_uav_cost,
+			best_final_win_cost_list=DAI_alns_best_final_win_cost,
+			best_total_win_cost_list=DAI_alns_best_total_win_cost,
+			best_final_global_max_time_list=DAI_alns_best_final_global_max_time,
+			best_global_max_time_list=DAI_alns_best_global_max_time,
+			best_window_total_cost_list=DAI_alns_best_window_total_cost,
+			best_total_uav_tw_violation_cost_list=DAI_alns_best_total_uav_tw_violation_cost,
+			best_total_vehicle_cost_list=DAI_alns_best_total_vehicle_cost,
+			elapsed_time_list=DAI_alns_elapsed_time,
+			# --- 每代曲线（list/np.array 都可以）---
+			win_cost_curve_list=DAI_alns_win_cost,
+			uav_route_cost_curve_list=DAI_alns_uav_route_cost,
+			vehicle_route_cost_curve_list=DAI_alns_vehicle_route_cost,
+			final_uav_cost_curve_list=DAI_alns_final_uav_cost,
+			final_total_list_curve_list=DAI_alns_final_total_list,
+			final_win_cost_curve_list=DAI_alns_final_win_cost,
+			final_total_objective_curve_list=DAI_alns_final_total_objective,
+			y_cost_curve_list=DAI_alns_y_cost,
+			y_best_curve_list=DAI_alns_y_best,
+			work_time_curve_list=DAI_alns_work_time,
+			final_work_time_curve_list=DAI_alns_final_work_time,
+			)
+			print(f"DAI_ALNS_finished_{iter}_iterations")
 
 	base_dir_route = SAVE_DIR_TOTAL  # 基础目录
 	# 目标子目录：按客户数 + 算子组合分组

@@ -39,12 +39,20 @@ MARKER_BASE_DIR = r"D:\Zhangmiaohan_Palace\VDAC_基于空中走廊的配送任�
 # =============================================================
 ALGORITHMS_TO_COMPARE = [
     "H_ALNS", 
-    "T_ALNS"
+    "T_ALNS",
+    "T_I_ALNS",
+    "TA_I_ALNS",
+    "A_I_ALNS",
+    "DA_I_ALNS",
 ]
 
 ALG_ABBR = {
-    "H_ALNS": "HALNS",
-    "T_ALNS": "TALNS"
+    "H_ALNS": "HA",
+    "T_ALNS": "TA",
+    "T_I_ALNS": "TI",
+    "TA_I_ALNS": "TAI",
+    "A_I_ALNS": "AI",
+    "DA_I_ALNS": "DAI",
 }
 
 # =============================================================

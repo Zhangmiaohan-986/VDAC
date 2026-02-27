@@ -97,11 +97,28 @@ class T_IncrementalALNS:
         self.destroy_weights = {op.__name__: 1.0 for op in self.destroy_operators}
         self.repair_weights  = {op.__name__: 1.0 for op in self.repair_operators}
 
+        # 与分段权重更新保持一致的学习率参数
+        self.reaction_factor = 0.5
+        # 与保存接口保持一致（单策略展开）
+        self.strategy_weights = {'single_layer': 1.0}
+        self.operator_weights = {
+            'single_layer': {
+                'destroy': dict(self.destroy_weights),
+                'repair': dict(self.repair_weights),
+            }
+        }
+
         # 传统ALNS常用三档评分
         # new_best / better / accepted_worse(这里贪婪不会发生)
-        self.sigma1 = self.reward_scores.get('new_best', 10)
-        self.sigma2 = self.reward_scores.get('better_than_current', 5)
-        self.sigma3 = 0   # 贪婪不接受差解，所以一般为0
+        # 接受策略评分（传统ALNS三档，匹配当前贪婪接受逻辑）
+        self.reward_scores = {
+            'new_best': 10.0,
+            'better_than_current': 5.0,
+            'accepted_worse': 0.0,
+        }
+        self.sigma1 = self.reward_scores.get('new_best', 10.0)
+        self.sigma2 = self.reward_scores.get('better_than_current', 5.0)
+        self.sigma3 = self.reward_scores.get('accepted_worse', 0.0)
         if algo_seed is None:
             algo_seed = 42
         self.rng = rnd.default_rng(algo_seed)
@@ -4717,8 +4734,17 @@ class T_IncrementalALNS:
         final_total_objective_value = current_state.update_calculate_plan_cost(final_total_cost_dict, current_state.vehicle_routes)
         final_total_objective.append(final_total_objective_value)
         final_vehicle_route_cost.append(final_total_objective_value - final_window_total_cost)  # 记录考虑空中避障场景下的车辆路径规划成本
-        best_final_objective = final_total_objective_value
-        final_current_objective = final_total_objective_value
+
+        best_final_state = current_state.fast_copy()
+        final_best_objective = final_total_objective_value
+        best_final_state.final_best_objective = final_best_objective
+        best_final_uav_cost = sum(current_state.final_uav_cost.values())
+        best_final_objective = final_best_objective
+        best_final_win_cost = sum(final_uav_tw_violation_cost.values())
+        best_final_vehicle_max_times = final_vehicle_max_times
+        best_final_global_max_time = final_global_max_time
+        best_total_win_cost = final_window_total_cost
+        best_final_vehicle_route_cost = final_total_objective_value - final_window_total_cost
 
         best_state = current_state.fast_copy()
         best_objective = current_state.destroyed_node_cost
@@ -5007,7 +5033,7 @@ class T_IncrementalALNS:
 
         # 保存运行数据
         save_alns_results(
-            instance_name=self.problemName + str('T_alns') + "_" + str(self.iter),  # 换成你实际的算例名
+            instance_name=self.problemName + str('T') + "_" + str(self.iter),  # 换成你实际的算例名
             y_best=y_best,
             y_cost=y_cost,
             win_cost=win_cost,
