@@ -42,10 +42,10 @@ from generate_test_problems import *
 startTime 		= time.time()
 
 METERS_PER_MILE = 1609.34
-# REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
-# MAX_PARALLEL = 5 # 最大并行任务数
-REPEAT_PER_TASK = 1  # 每个任务跑多少次取平均
-MAX_PARALLEL = 1 # 最大并行任务数
+REPEAT_PER_TASK = 10  # 每个任务跑多少次取平均
+MAX_PARALLEL = 5 # 最大并行任务数
+# REPEAT_PER_TASK = 1  # 每个任务跑多少次取平均
+# MAX_PARALLEL = 1 # 最大并行任务数
 ALGO_SEED_BASE = 10000
 OP_ABBR = {
     "destroy_random_removal": "RandRm",
@@ -338,17 +338,17 @@ def _worker(cfg):
 
 # 破坏/修复算子名称（与 fast_alns_solver.py 中方法名一致）
 DESTROY_OPS = [
-    "destroy_random_removal",
+    # "destroy_random_removal",
     "destroy_worst_removal",
     "destroy_comprehensive_removal",
     "destroy_shaw_rebalance_removal",
 ]
 
 REPAIR_OPS = [
-    "repair_greedy_insertion",
+    # "repair_greedy_insertion",
     "repair_regret_insertion",
     "noise_regret_insertion",
-    "repair_kNN_regret",
+    # "repair_kNN_regret",
 ]
 
 def run_batch_experiments():
